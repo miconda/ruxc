@@ -17,6 +17,9 @@ int main(int argc, char *argv[])
 	v_http_request.url = "https://www.kamailio.org/pub/kamailio/latest-stable-version-number";
 	v_http_request.url_len = strlen(v_http_request.url);
 
+	v_http_request.headers = "X-My-Key: abcdefgh\r\nX-Info: request\r\n";
+	v_http_request.headers_len = strlen(v_http_request.headers);
+
 	ruxc_http_get(&v_http_request, &v_http_response);
 
 	if(v_http_response.retcode < 0) {
