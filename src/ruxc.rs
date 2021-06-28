@@ -27,6 +27,7 @@ pub struct RuxcHTTPRequest {
     pub timeout_read: libc::c_int,
     pub timeout_write: libc::c_int,
     pub flags: libc::c_int,
+    pub debug: libc::c_int,
 }
 
 #[repr(C)]
@@ -131,7 +132,9 @@ fn ruxc_http_request_perform(
             (*v_http_response).retcode = -20;
             return Ok(());
         }
-    }
+    };
+
+    let debug = unsafe { (*v_http_request).debug as i32 };
 
     let mut builder = ureq::builder()
         .timeout_connect(std::time::Duration::from_millis(unsafe { (*v_http_request).timeout_connect as u64}))
@@ -186,12 +189,14 @@ fn ruxc_http_request_perform(
         res = req.call()?;
     }
 
-    println!(
-        "{} {} {}",
-        res.http_version(),
-        res.status(),
-        res.status_text()
-    );
+    if debug != 0 {
+        println!(
+            "{} {} {}",
+            res.http_version(),
+            res.status(),
+            res.status_text()
+        );
+    }
 
     let body: String = res.into_string()?;
 
@@ -205,8 +210,9 @@ fn ruxc_http_request_perform(
         .into_string()?;
     */
 
-    println!("Hello from Rust");
-    println!("HTTP response body {}", body);
+    if debug != 0 {
+        println!("HTTP response body: {}", body);
+    }
 
     unsafe {
         (*v_http_response).resdata_len = body.chars().count() as i32;
