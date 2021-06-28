@@ -145,7 +145,19 @@ fn ruxc_http_get_perform(
     };
 
     let r_url_str = c_url_str.to_str().unwrap();
-    let req = agent.get(r_url_str);
+    let mut req = agent.get(r_url_str);
+
+    unsafe {
+        if !(*v_http_request).headers.is_null() && (*v_http_request).headers_len > 0 {
+            let r_headers_str = std::ffi::CStr::from_ptr((*v_http_request).headers).to_str().unwrap();
+            for line in r_headers_str.lines() {
+                let cpos = line.chars().position(|c| c == ':').unwrap();
+                if cpos > 0 {
+                    req = req.set(&line[0..cpos], &line[(cpos+1)..].trim());
+                }
+            }
+        }
+    };
 
     let res = req.call()?;
 
