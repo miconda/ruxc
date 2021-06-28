@@ -8,4 +8,4 @@ C library exporting useful functions written in Rust.
 
 MIT
 
-**Copyright**: Daniel-Constantin Mierla <miconda@gmail.com>
+**Copyright**: `Daniel-Constantin Mierla <miconda@gmail.com>`
