@@ -8,6 +8,12 @@ use webpki;
 
 use ureq;
 
+#[derive(PartialEq)]
+enum HTTPMethodType {
+    MethodGET,
+    MethodPOST,
+}
+
 #[repr(C)]
 pub struct RuxcHTTPRequest {
     pub url: *const libc::c_char,
@@ -113,9 +119,10 @@ impl rustls::ServerCertVerifier for AcceptAll {
     }
 }
 
-fn ruxc_http_get_perform(
+fn ruxc_http_request_perform(
             v_http_request: *const RuxcHTTPRequest,
-            v_http_response: *mut RuxcHTTPResponse)
+            v_http_response: *mut RuxcHTTPResponse,
+            v_method: HTTPMethodType)
         -> Result<(), Error>
 {
     unsafe {
@@ -145,7 +152,13 @@ fn ruxc_http_get_perform(
     };
 
     let r_url_str = c_url_str.to_str().unwrap();
-    let mut req = agent.get(r_url_str);
+    let mut req: ureq::Request;
+
+    if v_method == HTTPMethodType::MethodPOST {
+        req = agent.post(r_url_str);
+    } else {
+        req = agent.get(r_url_str);
+    }
 
     unsafe {
         if !(*v_http_request).headers.is_null() && (*v_http_request).headers_len > 0 {
@@ -159,7 +172,19 @@ fn ruxc_http_get_perform(
         }
     };
 
-    let res = req.call()?;
+    let res: ureq::Response;
+
+    if v_method == HTTPMethodType::MethodPOST {
+        unsafe {
+            if !(*v_http_request).data.is_null() && (*v_http_request).data_len > 0 {
+                res = req.send_string(std::ffi::CStr::from_ptr((*v_http_request).data).to_str().unwrap())?;
+            } else {
+                res = req.send_string("")?;
+            }
+        }
+    } else {
+        res = req.call()?;
+    }
 
     println!(
         "{} {} {}",
@@ -201,6 +226,16 @@ pub extern "C" fn ruxc_http_get(
             v_http_response: *mut RuxcHTTPResponse
         ) -> libc::c_int
 {
-    ruxc_http_get_perform(v_http_request, v_http_response).ok();
+    ruxc_http_request_perform(v_http_request, v_http_response, HTTPMethodType::MethodGET).ok();
+    return 0;
+}
+
+#[no_mangle]
+pub extern "C" fn ruxc_http_post(
+            v_http_request: *const RuxcHTTPRequest,
+            v_http_response: *mut RuxcHTTPResponse
+        ) -> libc::c_int
+{
+    ruxc_http_request_perform(v_http_request, v_http_response, HTTPMethodType::MethodPOST).ok();
     return 0;
 }
