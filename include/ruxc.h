@@ -14,6 +14,7 @@ typedef struct RuxcHTTPRequest {
     int timeout_read;
     int timeout_write;
     int flags;
+    int debug;
 } RuxcHTTPRequest;
 
 typedef struct RuxcHTTPResponse {
