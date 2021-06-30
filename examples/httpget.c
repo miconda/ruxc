@@ -20,13 +20,16 @@ int main(int argc, char *argv[])
 	v_http_request.headers = "X-My-Key: abcdefgh\r\nX-Info: request\r\n";
 	v_http_request.headers_len = strlen(v_http_request.headers);
 
+	v_http_request.debug = 1;
+
 	ruxc_http_get(&v_http_request, &v_http_response);
 
 	if(v_http_response.retcode < 0) {
-		printf("failed to perform http get - retcode: %d\n", v_http_response.retcode);
+		printf("* c:: failed to perform http get - retcode: %d\n", v_http_response.retcode);
 	} else {
 		if(v_http_response.resdata != NULL &&  v_http_response.resdata_len>0) {
-			printf("response data len: %d - data: [%.*s]\n", v_http_response.resdata_len,
+			printf("* c:: response code: %d - data len: %d - data: [%.*s]\n",
+					v_http_response.rescode, v_http_response.resdata_len,
 					v_http_response.resdata_len, v_http_response.resdata);
 		}
 	}
