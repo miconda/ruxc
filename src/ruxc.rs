@@ -158,8 +158,14 @@ fn ruxc_http_request_perform(
     let mut req: ureq::Request;
 
     if v_method == HTTPMethodType::MethodPOST {
+        if debug != 0 {
+            println!("* ruxc:: doing HTTP POST - url: {}", r_url_str);
+        }
         req = agent.post(r_url_str);
     } else {
+        if debug != 0 {
+            println!("* ruxc:: doing HTTP GET - url: {}", r_url_str);
+        }
         req = agent.get(r_url_str);
     }
 
@@ -191,12 +197,16 @@ fn ruxc_http_request_perform(
 
     if debug != 0 {
         println!(
-            "{} {} {}",
+            "* ruxc:: {} {} {}",
             res.http_version(),
             res.status(),
             res.status_text()
         );
     }
+
+    unsafe {
+        (*v_http_response).rescode = res.status() as i32;
+    };
 
     let body: String = res.into_string()?;
 
@@ -211,7 +221,7 @@ fn ruxc_http_request_perform(
     */
 
     if debug != 0 {
-        println!("HTTP response body: {}", body);
+        println!("* ruxc:: HTTP response body: {}", body);
     }
 
     unsafe {
