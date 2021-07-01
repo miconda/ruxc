@@ -13,6 +13,7 @@ typedef struct RuxcHTTPRequest {
     int timeout_connect;
     int timeout_read;
     int timeout_write;
+    int tlsmode;
     int flags;
     int debug;
 } RuxcHTTPRequest;
