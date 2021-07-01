@@ -26,6 +26,7 @@ pub struct RuxcHTTPRequest {
     pub timeout_connect: libc::c_int,
     pub timeout_read: libc::c_int,
     pub timeout_write: libc::c_int,
+    pub tlsmode: libc::c_int,
     pub flags: libc::c_int,
     pub debug: libc::c_int,
 }
@@ -135,6 +136,7 @@ fn ruxc_http_request_perform(
     };
 
     let debug = unsafe { (*v_http_request).debug as i32 };
+    let tlsmode = unsafe { (*v_http_request).tlsmode as i32 };
 
     let mut builder = ureq::builder()
         .timeout_connect(std::time::Duration::from_millis(unsafe { (*v_http_request).timeout_connect as u64}))
@@ -142,11 +144,13 @@ fn ruxc_http_request_perform(
         .timeout_write(std::time::Duration::from_millis(unsafe { (*v_http_request).timeout_write as u64}))
         .timeout(std::time::Duration::from_millis(unsafe { (*v_http_request).timeout as u64}));
 
-    let mut client_config = rustls::ClientConfig::new();
-    client_config
-        .dangerous()
-        .set_certificate_verifier(std::sync::Arc::new(AcceptAll {}));
-    builder = builder.tls_config(std::sync::Arc::new(client_config));
+    if tlsmode == 0 {
+        let mut client_config = rustls::ClientConfig::new();
+        client_config
+            .dangerous()
+            .set_certificate_verifier(std::sync::Arc::new(AcceptAll {}));
+        builder = builder.tls_config(std::sync::Arc::new(client_config));
+    }
 
     let agent = builder.build();
 
