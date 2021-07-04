@@ -247,7 +247,7 @@ pub extern "C" fn ruxc_http_get(
         ) -> libc::c_int
 {
     ruxc_http_request_perform(v_http_request, v_http_response, HTTPMethodType::MethodGET).ok();
-    return 0;
+    return unsafe { (*v_http_response).retcode };
 }
 
 #[no_mangle]
@@ -257,5 +257,5 @@ pub extern "C" fn ruxc_http_post(
         ) -> libc::c_int
 {
     ruxc_http_request_perform(v_http_request, v_http_response, HTTPMethodType::MethodPOST).ok();
-    return 0;
+    return unsafe { (*v_http_response).retcode };
 }
