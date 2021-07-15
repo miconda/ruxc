@@ -214,16 +214,6 @@ fn ruxc_http_request_perform(
 
     let body: String = res.into_string()?;
 
-    /*
-    let agent: ureq::Agent = ureq::AgentBuilder::new()
-        .timeout_read(std::time::Duration::from_secs(5))
-        .timeout_write(std::time::Duration::from_secs(5))
-        .build();
-    let body: String = agent.get("https://www.kamailio.org/pub/kamailio/latest-stable-version-number")
-        .call()?
-        .into_string()?;
-    */
-
     if debug != 0 {
         println!("* ruxc:: HTTP response body: {}", body);
     }
