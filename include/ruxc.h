@@ -28,5 +28,7 @@ typedef struct RuxcHTTPResponse {
 extern void ruxc_http_response_release(RuxcHTTPResponse *v_http_response);
 extern int ruxc_http_get(RuxcHTTPRequest *v_http_request,
 		RuxcHTTPResponse *v_http_response);
+extern int ruxc_http_post(RuxcHTTPRequest *v_http_request,
+		RuxcHTTPResponse *v_http_response);
 
 #endif
