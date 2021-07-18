@@ -1,3 +1,8 @@
+/**
+ * build on macos:
+ *   cd ..; gcc -o examples/httpget -I include/ examples/httpget.c target/release/libruxc.a -framework Security
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -12,7 +17,7 @@ int main(int argc, char *argv[])
     v_http_request.timeout = 5000;
     v_http_request.timeout_connect = 5000;
     v_http_request.timeout_read = 5000;
-    v_http_request.timeout_write = 500;
+    v_http_request.timeout_write = 5000;
 
 	v_http_request.url = "https://www.kamailio.org/pub/kamailio/latest-stable-version-number";
 	v_http_request.url_len = strlen(v_http_request.url);
