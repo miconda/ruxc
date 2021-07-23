@@ -16,6 +16,7 @@ typedef struct RuxcHTTPRequest {
     int tlsmode;
     int flags;
     int debug;
+    int reuse;
 } RuxcHTTPRequest;
 
 typedef struct RuxcHTTPResponse {
