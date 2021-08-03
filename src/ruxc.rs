@@ -127,77 +127,31 @@ impl rustls::ServerCertVerifier for AcceptAll {
 }
 
 fn ruxc_http_request_perform(
+            agent: &ureq::Agent,
             v_http_request: *const RuxcHTTPRequest,
             v_http_response: *mut RuxcHTTPResponse,
             v_method: HTTPMethodType)
         -> Result<(), Error>
 {
-    unsafe {
-        (*v_http_response).retcode = -1;
-        if (*v_http_request).url.is_null() {
-            (*v_http_response).retcode = -20;
-            return Ok(());
-        }
-    };
-
     let debug = unsafe { (*v_http_request).debug as i32 };
-    let tlsmode = unsafe { (*v_http_request).tlsmode as i32 };
-    let reuse = unsafe { (*v_http_request).reuse as i32 };
-
-    let haready = unsafe { HTTPAGENTREADY as u32 };
-
-    if reuse == 0 || haready == 0 {
-        if debug != 0 {
-            println!("* ruxc:: initializing http agent - reuse: {}", reuse);
-        }
-        let mut builder = ureq::builder()
-            .timeout_connect(std::time::Duration::from_millis(unsafe { (*v_http_request).timeout_connect as u64}))
-            .timeout_read(std::time::Duration::from_millis(unsafe { (*v_http_request).timeout_read as u64}))
-            .timeout_write(std::time::Duration::from_millis(unsafe { (*v_http_request).timeout_write as u64}))
-            .timeout(std::time::Duration::from_millis(unsafe { (*v_http_request).timeout as u64}));
-
-        if tlsmode == 0 {
-            let mut client_config = rustls::ClientConfig::new();
-            client_config
-                .dangerous()
-                .set_certificate_verifier(std::sync::Arc::new(AcceptAll {}));
-            builder = builder.tls_config(std::sync::Arc::new(client_config));
-        }
-
-        HTTPAGENT.with(|agent| {
-            *agent.borrow_mut() = builder.build();
-        });
-        if reuse == 1 {
-            if debug != 0 {
-                println!("* ruxc:: saving ready state - reuse: {}", reuse);
-            }
-            unsafe {
-                HTTPAGENTREADY = 1;
-            };
-        }
-    }
 
     let c_url_str = unsafe {
         std::ffi::CStr::from_ptr((*v_http_request).url)
     };
 
     let r_url_str = c_url_str.to_str().unwrap();
-    let mut req: ureq::Request = ureq::Agent::new().get(r_url_str);
+    let mut req: ureq::Request;
 
     if v_method == HTTPMethodType::MethodPOST {
         if debug != 0 {
             println!("* ruxc:: doing HTTP POST - url: {}", r_url_str);
         }
-        HTTPAGENT.with(|agent| {
-            req = (*agent.borrow()).post(r_url_str);
-        });
+        req = agent.post(r_url_str);
     } else {
         if debug != 0 {
             println!("* ruxc:: doing HTTP GET - url: {}", r_url_str);
         }
-        HTTPAGENT.with(|agent| {
-            req = (*agent.borrow()).get(r_url_str);
-        });
+        req = agent.get(r_url_str);
     }
 
     unsafe {
@@ -257,13 +211,112 @@ fn ruxc_http_request_perform(
     return Ok(());
 }
 
+fn ruxc_http_request_perform_once(
+            v_http_request: *const RuxcHTTPRequest,
+            v_http_response: *mut RuxcHTTPResponse,
+            v_method: HTTPMethodType)
+        -> Result<(), Error>
+{
+    unsafe {
+        (*v_http_response).retcode = -1;
+        if (*v_http_request).url.is_null() {
+            (*v_http_response).retcode = -20;
+            return Ok(());
+        }
+    };
+
+    let debug = unsafe { (*v_http_request).debug as i32 };
+    let tlsmode = unsafe { (*v_http_request).tlsmode as i32 };
+
+    if debug != 0 {
+        println!("* ruxc:: initializing http agent - noreuse");
+    }
+    let mut builder = ureq::builder()
+        .timeout_connect(std::time::Duration::from_millis(unsafe { (*v_http_request).timeout_connect as u64}))
+        .timeout_read(std::time::Duration::from_millis(unsafe { (*v_http_request).timeout_read as u64}))
+        .timeout_write(std::time::Duration::from_millis(unsafe { (*v_http_request).timeout_write as u64}))
+        .timeout(std::time::Duration::from_millis(unsafe { (*v_http_request).timeout as u64}));
+
+    if tlsmode == 0 {
+        let mut client_config = rustls::ClientConfig::new();
+        client_config
+            .dangerous()
+            .set_certificate_verifier(std::sync::Arc::new(AcceptAll {}));
+        builder = builder.tls_config(std::sync::Arc::new(client_config));
+    }
+
+    let agent = builder.build();
+
+    return ruxc_http_request_perform(&agent, v_http_request, v_http_response, v_method);
+}
+
+fn ruxc_http_request_perform_reuse(
+            v_http_request: *const RuxcHTTPRequest,
+            v_http_response: *mut RuxcHTTPResponse,
+            v_method: HTTPMethodType)
+        -> Result<(), Error>
+{
+    unsafe {
+        (*v_http_response).retcode = -1;
+        if (*v_http_request).url.is_null() {
+            (*v_http_response).retcode = -20;
+            return Ok(());
+        }
+    };
+
+    let debug = unsafe { (*v_http_request).debug as i32 };
+    let tlsmode = unsafe { (*v_http_request).tlsmode as i32 };
+
+    let haready = unsafe { HTTPAGENTREADY as u32 };
+
+    if haready == 0 {
+        if debug != 0 {
+            println!("* ruxc:: initializing http agent - reuse on");
+        }
+        let mut builder = ureq::builder()
+            .timeout_connect(std::time::Duration::from_millis(unsafe { (*v_http_request).timeout_connect as u64}))
+            .timeout_read(std::time::Duration::from_millis(unsafe { (*v_http_request).timeout_read as u64}))
+            .timeout_write(std::time::Duration::from_millis(unsafe { (*v_http_request).timeout_write as u64}))
+            .timeout(std::time::Duration::from_millis(unsafe { (*v_http_request).timeout as u64}));
+
+        if tlsmode == 0 {
+            let mut client_config = rustls::ClientConfig::new();
+            client_config
+                .dangerous()
+                .set_certificate_verifier(std::sync::Arc::new(AcceptAll {}));
+            builder = builder.tls_config(std::sync::Arc::new(client_config));
+        }
+
+        HTTPAGENT.with(|agent| {
+            *agent.borrow_mut() = builder.build();
+        });
+        if debug != 0 {
+            println!("* ruxc:: saving ready state - reuse on");
+        }
+        unsafe {
+            HTTPAGENTREADY = 1;
+        };
+    }
+
+    HTTPAGENT.with(|agent| {
+        ruxc_http_request_perform(&(*agent.borrow()), v_http_request, v_http_response, v_method).ok();
+    });
+
+    return Ok(());
+ }
+
 #[no_mangle]
 pub extern "C" fn ruxc_http_get(
             v_http_request: *const RuxcHTTPRequest,
             v_http_response: *mut RuxcHTTPResponse
         ) -> libc::c_int
 {
-    ruxc_http_request_perform(v_http_request, v_http_response, HTTPMethodType::MethodGET).ok();
+    let reuse = unsafe { (*v_http_request).reuse as i32 };
+    if reuse == 1 {
+        ruxc_http_request_perform_reuse(v_http_request, v_http_response, HTTPMethodType::MethodGET).ok();
+    } else {
+        ruxc_http_request_perform_once(v_http_request, v_http_response, HTTPMethodType::MethodGET).ok();
+    }
     return unsafe { (*v_http_response).retcode };
 }
 
@@ -273,6 +326,11 @@ pub extern "C" fn ruxc_http_post(
             v_http_response: *mut RuxcHTTPResponse
         ) -> libc::c_int
 {
-    ruxc_http_request_perform(v_http_request, v_http_response, HTTPMethodType::MethodPOST).ok();
+    let reuse = unsafe { (*v_http_request).reuse as i32 };
+    if reuse == 1 {
+        ruxc_http_request_perform_reuse(v_http_request, v_http_response, HTTPMethodType::MethodPOST).ok();
+    } else {
+        ruxc_http_request_perform_once(v_http_request, v_http_response, HTTPMethodType::MethodPOST).ok();
+    }
     return unsafe { (*v_http_response).retcode };
 }
