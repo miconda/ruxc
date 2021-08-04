@@ -1,14 +1,17 @@
 extern crate libc;
 
 use std;
-
 use rustls;
-
 use webpki;
-
+use url;
 use ureq;
+use std::collections::HashMap;
 
 thread_local!(static HTTPAGENT: std::cell::RefCell<ureq::Agent> = std::cell::RefCell::new(ureq::Agent::new()));
+
+thread_local! {
+    static HTTPAGENTMAP: std::cell::RefCell< HashMap<String, ureq::Agent> > = HashMap::new().into();
+}
 
 static mut HTTPAGENTREADY: u32 = 0;
 
@@ -106,6 +109,14 @@ impl From<ureq::Error> for Error {
 
 impl From<std::io::Error> for Error {
     fn from(source: std::io::Error) -> Self {
+        Error {
+            source: source.into(),
+        }
+    }
+}
+
+impl From<url::ParseError> for Error {
+    fn from(source: url::ParseError) -> Self {
         Error {
             source: source.into(),
         }
@@ -301,7 +312,58 @@ fn ruxc_http_request_perform_reuse(
     });
 
     return Ok(());
- }
+}
+
+fn ruxc_http_request_perform_hashmap(
+            v_http_request: *const RuxcHTTPRequest,
+            v_http_response: *mut RuxcHTTPResponse,
+            v_method: HTTPMethodType)
+        -> Result<(), Error>
+{
+    unsafe {
+        (*v_http_response).retcode = -1;
+        if (*v_http_request).url.is_null() {
+            (*v_http_response).retcode = -20;
+            return Ok(());
+        }
+    };
+
+    let debug = unsafe { (*v_http_request).debug as i32 };
+
+    let r_url_str = unsafe {
+        std::ffi::CStr::from_ptr((*v_http_request).url).to_string_lossy().into_owned()
+    };
+
+    let url = url::Url::parse(&r_url_str)?;
+
+    let htkey = format!("{}://{}:{}", url.scheme(),
+                    url.host_str().unwrap_or("127.0.0.1"),
+                    url.port_or_known_default().unwrap_or(80));
+
+    if debug != 0 {
+        println!("* ruxc:: htable key [{}]", htkey);
+    }
+
+    HTTPAGENTMAP.with(|item| {
+        let mut ht = item.borrow_mut();
+        if ! ht.contains_key(&htkey) {
+            let htnewkey = String::clone(&htkey);
+            if debug != 0 {
+                println!("* ruxc:: initializing http agent for [{}]", htnewkey);
+            }
+            let builder = ruxc_http_agent_builder(v_http_request);
+            ht.insert(htnewkey, builder.build());
+        }
+        if let Some(agent) = ht.get(&htkey) {
+            if debug != 0 {
+                println!("* ruxc:: agent retrieved for [{}]", htkey);
+            }
+            ruxc_http_request_perform(&agent, v_http_request, v_http_response, v_method).ok();
+        }
+    });
+
+    return Ok(());
+}
 
 #[no_mangle]
 pub extern "C" fn ruxc_http_get(
@@ -312,6 +374,8 @@ pub extern "C" fn ruxc_http_get(
     let reuse = unsafe { (*v_http_request).reuse as i32 };
     if reuse == 1 {
         ruxc_http_request_perform_reuse(v_http_request, v_http_response, HTTPMethodType::MethodGET).ok();
+    } else if reuse == 2 {
+        ruxc_http_request_perform_hashmap(v_http_request, v_http_response, HTTPMethodType::MethodGET).ok();
     } else {
         ruxc_http_request_perform_once(v_http_request, v_http_response, HTTPMethodType::MethodGET).ok();
     }
@@ -327,6 +391,8 @@ pub extern "C" fn ruxc_http_post(
     let reuse = unsafe { (*v_http_request).reuse as i32 };
     if reuse == 1 {
         ruxc_http_request_perform_reuse(v_http_request, v_http_response, HTTPMethodType::MethodPOST).ok();
+    } else if reuse == 2 {
+        ruxc_http_request_perform_hashmap(v_http_request, v_http_response, HTTPMethodType::MethodPOST).ok();
     } else {
         ruxc_http_request_perform_once(v_http_request, v_http_response, HTTPMethodType::MethodPOST).ok();
     }
