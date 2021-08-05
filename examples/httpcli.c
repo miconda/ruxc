@@ -81,10 +81,10 @@ int main(int argc, char *argv[])
 		}
 	}
 
-    v_http_request.timeout = timeout;
-    v_http_request.timeout_connect = timeout;
-    v_http_request.timeout_read = timeout;
-    v_http_request.timeout_write = timeout;
+	v_http_request.timeout = timeout;
+	v_http_request.timeout_connect = timeout;
+	v_http_request.timeout_read = timeout;
+	v_http_request.timeout_write = timeout;
 	v_http_request.debug = debug;
 	v_http_request.reuse = reuse;
 

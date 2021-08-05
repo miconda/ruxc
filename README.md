@@ -57,10 +57,10 @@ int main(int argc, char *argv[])
 	RuxcHTTPRequest v_http_request = {0};
 	RuxcHTTPResponse v_http_response = {0};
 
-    v_http_request.timeout = 5000;
-    v_http_request.timeout_connect = 5000;
-    v_http_request.timeout_read = 5000;
-    v_http_request.timeout_write = 5000;
+	v_http_request.timeout = 5000;
+	v_http_request.timeout_connect = 5000;
+	v_http_request.timeout_read = 5000;
+	v_http_request.timeout_write = 5000;
 	v_http_request.debug = 1;
 	v_http_request.reuse = 1;
 
