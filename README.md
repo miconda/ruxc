@@ -7,6 +7,10 @@ client functions for doing GET or POST requests.
 
 ## Build ##
 
+### Build With Cargo ###
+
+The library can be build directly using `cargo` tool that comes with `rust`:
+
 ```
 git clone https://github.com/miconda/ruxc
 cd ruxc
@@ -18,7 +22,19 @@ files are in the folder `target/release/`.
 
 The C structures and functions are available in `include/ruxc.h` file.
 
-## API Functions ##
+### Build With Make ###
+
+For convenience, a `Makefile` is available to simplify the build and install
+tasks:
+
+```
+git clone https://github.com/miconda/ruxc
+cd ruxc
+make lib
+make install
+```
+
+## C API Functions ##
 
 ### HTTP Client Functions ###
 
