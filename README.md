@@ -2,7 +2,7 @@
 
 `RUst eXports to C`
 
-C/C++ library exporting useful functions written in Rust, such as a simple HTTP/S
+C/C++ library exporting useful functions written in Rust, such as simple HTTP/S
 client functions for doing GET or POST requests.
 
 ## Build ##
@@ -17,7 +17,7 @@ cd ruxc
 cargo build --release
 ```
 
-After build, the `libruxc` static (`.a`) and dynamic (`.so` or `.dynlib`) library
+After build, the `libruxc` static (`.a`) and dynamic (`.so` or `.dylib`) library
 files are in the folder `target/release/`.
 
 The C structures and functions are available in `include/ruxc.h` file.
@@ -46,7 +46,7 @@ based on `rustls` (https://github.com/ctz/rustls).
 They are a simple alternative to the versatile cURL library, not depending
 on `libssl` or `gnutls` either. The functions are useful when willing to build
 a simple HTTP client in C, specially for multi-process applications when one
-wants to re-user the HTTP/S connection per process and do not care about
+wants to re-use the HTTP/S connection per process and do not care about
 multi-threading constraints of `libssl` or `libcurl`.
 
 It supports setting custom headers for GET and POST requests as well as body data
