@@ -1,0 +1,10 @@
+prefix=/usr
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: libruxc
+Description: C library implementing useful functions in Rust (simple HTTP/S client)
+Version: 1.0.0
+Libs: -L${libdir} -lruxc
+Cflags: -I${includedir}
