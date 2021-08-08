@@ -1,3 +1,10 @@
+//! RUXC
+//!
+//! Rust Utilities eXported to C
+//!
+//! Useful functions written in Rust made available to C
+//!   * simple HTTP/S client funtions for GET or POST requests
+
 extern crate libc;
 
 use std;
@@ -244,6 +251,7 @@ fn ruxc_http_request_perform(
     return Ok(());
 }
 
+// Perform HTTP/S request with a new agent every time
 fn ruxc_http_request_perform_once(
             v_http_request: *const RuxcHTTPRequest,
             v_http_response: *mut RuxcHTTPResponse,
@@ -271,6 +279,7 @@ fn ruxc_http_request_perform_once(
     return ruxc_http_request_perform(&agent, v_http_request, v_http_response, v_method);
 }
 
+// Perform HTTP/S request reusing one global agent every time
 fn ruxc_http_request_perform_reuse(
             v_http_request: *const RuxcHTTPRequest,
             v_http_response: *mut RuxcHTTPResponse,
@@ -314,6 +323,7 @@ fn ruxc_http_request_perform_reuse(
     return Ok(());
 }
 
+// Perform HTTP/S request reusing agents kept in hashmap by base URL
 fn ruxc_http_request_perform_hashmap(
             v_http_request: *const RuxcHTTPRequest,
             v_http_response: *mut RuxcHTTPResponse,
@@ -365,6 +375,7 @@ fn ruxc_http_request_perform_hashmap(
     return Ok(());
 }
 
+// Perform HTTP/S GET request
 #[no_mangle]
 pub extern "C" fn ruxc_http_get(
             v_http_request: *const RuxcHTTPRequest,
@@ -382,6 +393,7 @@ pub extern "C" fn ruxc_http_get(
     return unsafe { (*v_http_response).retcode };
 }
 
+// Perform HTTP/S POST request
 #[no_mangle]
 pub extern "C" fn ruxc_http_post(
             v_http_request: *const RuxcHTTPRequest,
