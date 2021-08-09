@@ -7,6 +7,10 @@ ifeq ($(OS),darwin)
 LD_EXTRA_FLAGS= -framework Security
 SOBASENAME=libruxc.dylib
 else
+ifeq ($(OS),linux)
+LD_EXTRA_FLAGS= -lpthread -ldl
+endif
+
 SOBASENAME=libruxc.so
 endif
 
