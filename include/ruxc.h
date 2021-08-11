@@ -18,6 +18,7 @@ typedef struct RuxcHTTPRequest {
     int debug;           /* Debug mode: 1 - print debug messages to stdout */
     int reuse;           /* Reuse connection mode: 0 - do not reuse;
                           *   1 - single connection; 2 - connections hashmap */
+    int retry;           /* How many tries to attempt if not getting 200ok */
 } RuxcHTTPRequest;
 
 typedef struct RuxcHTTPResponse {
