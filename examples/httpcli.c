@@ -22,6 +22,7 @@ Options:\n\
     -p            do http post instead of get\n\
     -r mode       reuse mode\n\
     -t usec       microseconds timeout\n\
+    -u url        URL to request\n\
     -h            this help message\n\
 ";
 
@@ -40,7 +41,7 @@ int main(int argc, char *argv[])
 	};
 	int post = 0;
 	char c = 0;
-	int ncount = 1000;
+	int ncount = 1;
 	int i = 0;
 	int retry = 0;
 	char hdrbuf[256];
@@ -50,9 +51,10 @@ int main(int argc, char *argv[])
 	int timeout = 5000;
 	char *postdata = "{ \"info\": \"testing\", \"id\": 80 }";
 	int reuse = 0;
+	char *url = NULL;
 
 	opterr=0;
-	while ((c=getopt(argc,argv, "n:r:t:Dhp"))!=-1){
+	while ((c=getopt(argc,argv, "a:n:r:t:u:Dhp"))!=-1){
 		switch(c){
 			case 'a':
 				retry = atoi(optarg);
@@ -71,6 +73,9 @@ int main(int argc, char *argv[])
 			case 't':
 				timeout = atoi(optarg);
 				if(timeout<=0) { timeout = 5000; }
+				break;
+			case 'u':
+				url = optarg;
 				break;
 			case 'h':
 				printf("version: %s\n", version);
@@ -91,10 +96,19 @@ int main(int argc, char *argv[])
 	v_http_request.reuse = reuse;
 	v_http_request.retry = retry;
 
-	for(i = 0; url_list[i]!=NULL; i++) {
+	for(i = 0; i<ncount; i++) {
 		printf("\n* c:: request %d =========================\n\n", i);
-		v_http_request.url = url_list[i];
+		if(url!=NULL) {
+			v_http_request.url = url;
+		} else {
+			if(url_list[i]!=NULL) {
+				v_http_request.url = url_list[i];
+			} else {
+				break;
+			}
+		}
 		v_http_request.url_len = strlen(v_http_request.url);
+		printf("\n* c:: request type=%s url=%s\n", (post==1)?"post":"get", v_http_request.url);
 
 		snprintf(hdrbuf, 255, "X-My-Key: KEY-%d\r\nX-Info: REQUEST-%d\r\n", i, i);
 		v_http_request.headers = hdrbuf;
@@ -130,10 +144,6 @@ int main(int argc, char *argv[])
 		v_http_response.resdata_len = 0;
 		v_http_response.retcode = 0;
 		v_http_response.rescode = 0;
-
-		if(ncount>0 && i>=ncount-1) {
-			break;
-		}
 	}
 	printf("\n");
 
