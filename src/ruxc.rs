@@ -44,6 +44,7 @@ pub struct RuxcHTTPRequest {
     pub flags: libc::c_int,
     pub debug: libc::c_int,
     pub reuse: libc::c_int,
+    pub retry: libc::c_int,
 }
 
 #[repr(C)]
@@ -170,7 +171,7 @@ fn ruxc_http_request_perform(
             agent: &ureq::Agent,
             v_http_request: *const RuxcHTTPRequest,
             v_http_response: *mut RuxcHTTPResponse,
-            v_method: HTTPMethodType)
+            v_method: &HTTPMethodType)
         -> Result<(), Error>
 {
     let debug = unsafe { (*v_http_request).debug as i32 };
@@ -182,7 +183,7 @@ fn ruxc_http_request_perform(
     let r_url_str = c_url_str.to_str().unwrap();
     let mut req: ureq::Request;
 
-    if v_method == HTTPMethodType::MethodPOST {
+    if *v_method == HTTPMethodType::MethodPOST {
         if debug != 0 {
             println!("* ruxc:: doing HTTP POST - url: {}", r_url_str);
         }
@@ -208,7 +209,7 @@ fn ruxc_http_request_perform(
 
     let res: ureq::Response;
 
-    if v_method == HTTPMethodType::MethodPOST {
+    if *v_method == HTTPMethodType::MethodPOST {
         unsafe {
             if !(*v_http_request).data.is_null() && (*v_http_request).data_len > 0 {
                 res = req.send_string(std::ffi::CStr::from_ptr((*v_http_request).data).to_str().unwrap())?;
@@ -233,19 +234,24 @@ fn ruxc_http_request_perform(
         (*v_http_response).rescode = res.status() as i32;
     };
 
-    let body: String = res.into_string()?;
+    let retry = unsafe { (*v_http_request).retry as i32 };
 
-    if debug != 0 {
-        println!("* ruxc:: HTTP response body: {}", body);
-    }
+    if retry<=0 || (res.status()>=200 && res.status()<=299) {
+        // store body only on no-retry or successful http response
+        let body: String = res.into_string()?;
 
-    unsafe {
-        (*v_http_response).resdata_len = body.chars().count() as i32;
-        if (*v_http_response).resdata_len > 0 {
-            let c_str_song = std::ffi::CString::new(body).unwrap();
-            (*v_http_response).resdata = c_str_song.into_raw();
+        if debug != 0 {
+            println!("* ruxc:: HTTP response body: {}", body);
         }
-        (*v_http_response).retcode = 0;
+
+        unsafe {
+            (*v_http_response).resdata_len = body.chars().count() as i32;
+            if (*v_http_response).resdata_len > 0 {
+                let c_str_song = std::ffi::CString::new(body).unwrap();
+                (*v_http_response).resdata = c_str_song.into_raw();
+            }
+            (*v_http_response).retcode = 0;
+        }
     }
 
     return Ok(());
@@ -276,7 +282,21 @@ fn ruxc_http_request_perform_once(
 
     let agent = builder.build();
 
-    return ruxc_http_request_perform(&agent, v_http_request, v_http_response, v_method);
+    let mut retry = unsafe { (*v_http_request).retry as i32 };
+
+    loop {
+        ruxc_http_request_perform(&agent, v_http_request, v_http_response, &v_method).ok();
+        if retry<=0 {
+            break;
+        }
+        unsafe {
+            if (*v_http_response).rescode>=200 && (*v_http_response).rescode<=299 {
+                break;
+            }
+        }
+        retry -= 1;
+    }
+    return Ok(());
 }
 
 // Perform HTTP/S request reusing one global agent every time
@@ -316,8 +336,21 @@ fn ruxc_http_request_perform_reuse(
         };
     }
 
+    let mut retry = unsafe { (*v_http_request).retry as i32 };
+
     HTTPAGENT.with(|agent| {
-        ruxc_http_request_perform(&(*agent.borrow()), v_http_request, v_http_response, v_method).ok();
+        loop {
+            ruxc_http_request_perform(&(*agent.borrow()), v_http_request, v_http_response, &v_method).ok();
+            if retry<=0 {
+                break;
+            }
+            unsafe {
+                if (*v_http_response).rescode>=200 && (*v_http_response).rescode<=299 {
+                    break;
+                }
+            }
+            retry -= 1;
+      }
     });
 
     return Ok(());
@@ -368,7 +401,19 @@ fn ruxc_http_request_perform_hashmap(
             if debug != 0 {
                 println!("* ruxc:: agent retrieved for [{}]", htkey);
             }
-            ruxc_http_request_perform(&agent, v_http_request, v_http_response, v_method).ok();
+            let mut retry = unsafe { (*v_http_request).retry as i32 };
+            loop {
+                ruxc_http_request_perform(&agent, v_http_request, v_http_response, &v_method).ok();
+                if retry<=0 {
+                    break;
+                }
+                unsafe {
+                    if (*v_http_response).rescode>=200 && (*v_http_response).rescode<=299 {
+                        break;
+                    }
+                }
+                retry -= 1;
+          }
         }
     });
 
