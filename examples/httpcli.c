@@ -16,6 +16,7 @@ static char *version = "httpcli 0.1.0";
 static char* helpmsg = "\
 Usage: httpcli [-D] [-p] [-t timeout] [-n count]\n\
 Options:\n\
+    -a count      number of retry attempts\n\
     -D            switch off debug mode\n\
     -n count      number of requests to be sent\n\
     -p            do http post instead of get\n\
@@ -41,6 +42,7 @@ int main(int argc, char *argv[])
 	char c = 0;
 	int ncount = 1000;
 	int i = 0;
+	int retry = 0;
 	char hdrbuf[256];
 	struct timeval tvb = {0}, tve = {0};
 	unsigned int diff = 0;
@@ -52,9 +54,9 @@ int main(int argc, char *argv[])
 	opterr=0;
 	while ((c=getopt(argc,argv, "n:r:t:Dhp"))!=-1){
 		switch(c){
-			case 'n':
-				ncount = atoi(optarg);
-				if(ncount<=0) { ncount = 1000; }
+			case 'a':
+				retry = atoi(optarg);
+				if(retry<0) { retry = 0; }
 				break;
 			case 'r':
 				reuse = atoi(optarg);
@@ -87,6 +89,7 @@ int main(int argc, char *argv[])
 	v_http_request.timeout_write = timeout;
 	v_http_request.debug = debug;
 	v_http_request.reuse = reuse;
+	v_http_request.retry = retry;
 
 	for(i = 0; url_list[i]!=NULL; i++) {
 		printf("\n* c:: request %d =========================\n\n", i);
