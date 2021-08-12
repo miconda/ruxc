@@ -1,4 +1,6 @@
 /**
+ * minimal http client using libruxc
+ *
  * build on macos:
  *   cd ..; gcc -o examples/httpcli -I include/ examples/httpcli.c target/release/libruxc.a -framework Security
  */
@@ -17,9 +19,10 @@ static char* helpmsg = "\
 Usage: httpcli [-D] [-p] [-t timeout] [-n count]\n\
 Options:\n\
     -a count      number of retry attempts\n\
-    -D            switch off debug mode\n\
+    -d            switch on debug mode\n\
     -n count      number of requests to be sent\n\
     -p            do http post instead of get\n\
+    -P data       http post data\n\
     -r mode       reuse mode\n\
     -t usec       microseconds timeout\n\
     -u url        URL to request\n\
@@ -47,14 +50,14 @@ int main(int argc, char *argv[])
 	char hdrbuf[256];
 	struct timeval tvb = {0}, tve = {0};
 	unsigned int diff = 0;
-	int debug = 1;
+	int debug = 0;
 	int timeout = 5000;
 	char *postdata = "{ \"info\": \"testing\", \"id\": 80 }";
 	int reuse = 0;
 	char *url = NULL;
 
 	opterr=0;
-	while ((c=getopt(argc,argv, "a:n:r:t:u:Dhp"))!=-1){
+	while ((c=getopt(argc,argv, "a:n:P:r:t:u:dhp"))!=-1){
 		switch(c){
 			case 'a':
 				retry = atoi(optarg);
@@ -64,11 +67,14 @@ int main(int argc, char *argv[])
 				reuse = atoi(optarg);
 				if(reuse<0 || reuse>2) { reuse = 0; }
 				break;
-			case 'D':
-				debug = 0;
+			case 'd':
+				debug = 1;
 				break;
 			case 'p':
 				post = 1;
+				break;
+			case 'P':
+				postdata = optarg;
 				break;
 			case 't':
 				timeout = atoi(optarg);
@@ -130,7 +136,8 @@ int main(int argc, char *argv[])
 
 
 		if(v_http_response.retcode < 0) {
-			printf("* c:: failed to perform http get [%d] - retcode: %d\n", i, v_http_response.retcode);
+			printf("* c:: failed to perform http get [%d] - retcode: %d - rescode: %d\n",
+					i, v_http_response.retcode, v_http_response.rescode);
 		} else {
 			if(v_http_response.resdata != NULL &&  v_http_response.resdata_len>0) {
 				printf("* c:: response [%d] code: %d - data len: %d - data: [%.*s]\n", i,
