@@ -198,6 +198,9 @@ fn ruxc_http_request_perform(
     unsafe {
         if !(*v_http_request).headers.is_null() && (*v_http_request).headers_len > 0 {
             let r_headers_str = std::ffi::CStr::from_ptr((*v_http_request).headers).to_str().unwrap();
+            if debug != 0 {
+                println!("* ruxc:: adding headers: [[{}]]", r_headers_str);
+            }
             for line in r_headers_str.lines() {
                 let cpos = line.chars().position(|c| c == ':').unwrap();
                 if cpos > 0 {
@@ -208,17 +211,38 @@ fn ruxc_http_request_perform(
     };
 
     let res: ureq::Response;
+    let exres: std::result::Result<ureq::Response, ureq::Error>;
 
     if *v_method == HTTPMethodType::MethodPOST {
+        let mut r_body_str: &str = "";
         unsafe {
             if !(*v_http_request).data.is_null() && (*v_http_request).data_len > 0 {
-                res = req.send_string(std::ffi::CStr::from_ptr((*v_http_request).data).to_str().unwrap())?;
-            } else {
-                res = req.send_string("")?;
+                r_body_str = std::ffi::CStr::from_ptr((*v_http_request).data).to_str().unwrap();
             }
         }
+        if debug != 0 {
+            println!("* ruxc:: post body: [[{}]]", r_body_str);
+        }
+        exres = req.send_string(r_body_str);
     } else {
-        res = req.call()?;
+        if debug != 0 {
+            println!("* ruxc:: get request");
+        }
+        exres = req.call();
+    }
+    match exres {
+        Ok(response) => {
+            res = response;
+        }
+        Err(ureq::Error::Status(_, response)) => {
+            res = response;
+        }
+        Err(err) => {
+            if debug != 0 {
+                println!("* ruxc:: error: {:?}", err);
+            }
+            return Ok(());
+        }
     }
 
     if debug != 0 {
