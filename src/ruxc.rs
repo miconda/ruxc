@@ -466,7 +466,7 @@ pub extern "C" fn ruxc_http_get(
         1 => ruxc_http_request_perform_reuse(v_http_request, v_http_response, HTTPMethodType::MethodGET).ok(),
         2 => ruxc_http_request_perform_hashmap(v_http_request, v_http_response, HTTPMethodType::MethodGET).ok(),
         _ => ruxc_http_request_perform_once(v_http_request, v_http_response, HTTPMethodType::MethodGET).ok(),
-    }
+    };
     return unsafe { (*v_http_response).retcode };
 }
 
@@ -482,7 +482,7 @@ pub extern "C" fn ruxc_http_post(
         1 => ruxc_http_request_perform_reuse(v_http_request, v_http_response, HTTPMethodType::MethodPOST).ok(),
         2 => ruxc_http_request_perform_hashmap(v_http_request, v_http_response, HTTPMethodType::MethodPOST).ok(),
         _ => ruxc_http_request_perform_once(v_http_request, v_http_response, HTTPMethodType::MethodPOST).ok(),
-    }
+    };
     return unsafe { (*v_http_response).retcode };
 }
 
