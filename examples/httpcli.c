@@ -11,15 +11,16 @@
 #include <unistd.h>
 #include <time.h>
 #include <sys/time.h>
+#include <syslog.h>
 
 #include <ruxc.h>
 
 static char *version = "httpcli 0.1.0";
 static char* helpmsg = "\
-Usage: httpcli [-D] [-p] [-t timeout] [-n count]\n\
+Usage: httpcli [params]\n\
 Options:\n\
     -a count      number of retry attempts\n\
-    -d            switch on debug mode\n\
+    -d mode       switch on debug mode\n\
     -n count      number of requests to be sent\n\
     -p            do http post instead of get\n\
     -P data       http post data\n\
@@ -57,7 +58,7 @@ int main(int argc, char *argv[])
 	char *url = NULL;
 
 	opterr=0;
-	while ((c=getopt(argc,argv, "a:n:P:r:t:u:dhp"))!=-1){
+	while ((c=getopt(argc,argv, "a:d:n:P:r:t:u:hp"))!=-1){
 		switch(c){
 			case 'a':
 				retry = atoi(optarg);
@@ -68,7 +69,8 @@ int main(int argc, char *argv[])
 				if(reuse<0 || reuse>2) { reuse = 0; }
 				break;
 			case 'd':
-				debug = 1;
+				debug = atoi(optarg);
+				if(debug<0 || debug>2) { debug = 0; }
 				break;
 			case 'p':
 				post = 1;
@@ -94,6 +96,9 @@ int main(int argc, char *argv[])
 		}
 	}
 
+	if(debug==2) {
+		openlog(argv[0], LOG_PID, LOG_DAEMON);
+	}
 	v_http_request.timeout = timeout;
 	v_http_request.timeout_connect = timeout;
 	v_http_request.timeout_read = timeout;
@@ -153,6 +158,8 @@ int main(int argc, char *argv[])
 		v_http_response.rescode = 0;
 	}
 	printf("\n");
-
+	if(debug==2) {
+		closelog();
+	}
 	return 0;
 }
