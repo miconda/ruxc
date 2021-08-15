@@ -38,6 +38,11 @@ extern int ruxc_http_get(RuxcHTTPRequest *v_http_request,
  */
 extern int ruxc_http_post(RuxcHTTPRequest *v_http_request,
 		RuxcHTTPResponse *v_http_response);
+/**
+ * Perform a HTTP/S DELETE request
+ */
+extern int ruxc_http_delete(RuxcHTTPRequest *v_http_request,
+		RuxcHTTPResponse *v_http_response);
 
 /**
  * Release resources associated with a HTTP/S response

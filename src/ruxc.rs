@@ -26,6 +26,7 @@ static mut HTTPAGENTREADY: u32 = 0;
 enum HTTPMethodType {
     MethodGET,
     MethodPOST,
+    MethodDELETE,
 }
 
 #[repr(C)]
@@ -183,16 +184,25 @@ fn ruxc_http_request_perform(
     let r_url_str = c_url_str.to_str().unwrap();
     let mut req: ureq::Request;
 
-    if *v_method == HTTPMethodType::MethodPOST {
-        if debug != 0 {
-            println!("* ruxc:: doing HTTP POST - url: {}", r_url_str);
-        }
-        req = agent.post(r_url_str);
-    } else {
-        if debug != 0 {
-            println!("* ruxc:: doing HTTP GET - url: {}", r_url_str);
-        }
-        req = agent.get(r_url_str);
+    match *v_method {
+        HTTPMethodType::MethodPOST => {
+            if debug != 0 {
+                println!("* ruxc:: doing HTTP POST - url: {}", r_url_str);
+            }
+            req = agent.post(r_url_str);
+        },
+        HTTPMethodType::MethodDELETE => {
+            if debug != 0 {
+                println!("* ruxc:: doing HTTP DELETE - url: {}", r_url_str);
+            }
+            req = agent.delete(r_url_str);
+        },
+        _ => {
+            if debug != 0 {
+                println!("* ruxc:: doing HTTP GET - url: {}", r_url_str);
+            }
+            req = agent.get(r_url_str);
+        },
     }
 
     unsafe {
@@ -452,13 +462,11 @@ pub extern "C" fn ruxc_http_get(
         ) -> libc::c_int
 {
     let reuse = unsafe { (*v_http_request).reuse as i32 };
-    if reuse == 1 {
-        ruxc_http_request_perform_reuse(v_http_request, v_http_response, HTTPMethodType::MethodGET).ok();
-    } else if reuse == 2 {
-        ruxc_http_request_perform_hashmap(v_http_request, v_http_response, HTTPMethodType::MethodGET).ok();
-    } else {
-        ruxc_http_request_perform_once(v_http_request, v_http_response, HTTPMethodType::MethodGET).ok();
-    }
+    match reuse {
+        1 => ruxc_http_request_perform_reuse(v_http_request, v_http_response, HTTPMethodType::MethodGET).ok(),
+        2 => ruxc_http_request_perform_hashmap(v_http_request, v_http_response, HTTPMethodType::MethodGET).ok(),
+        _ => ruxc_http_request_perform_once(v_http_request, v_http_response, HTTPMethodType::MethodGET).ok(),
+    };
     return unsafe { (*v_http_response).retcode };
 }
 
@@ -470,12 +478,26 @@ pub extern "C" fn ruxc_http_post(
         ) -> libc::c_int
 {
     let reuse = unsafe { (*v_http_request).reuse as i32 };
-    if reuse == 1 {
-        ruxc_http_request_perform_reuse(v_http_request, v_http_response, HTTPMethodType::MethodPOST).ok();
-    } else if reuse == 2 {
-        ruxc_http_request_perform_hashmap(v_http_request, v_http_response, HTTPMethodType::MethodPOST).ok();
-    } else {
-        ruxc_http_request_perform_once(v_http_request, v_http_response, HTTPMethodType::MethodPOST).ok();
-    }
+    match reuse {
+        1 => ruxc_http_request_perform_reuse(v_http_request, v_http_response, HTTPMethodType::MethodPOST).ok(),
+        2 => ruxc_http_request_perform_hashmap(v_http_request, v_http_response, HTTPMethodType::MethodPOST).ok(),
+        _ => ruxc_http_request_perform_once(v_http_request, v_http_response, HTTPMethodType::MethodPOST).ok(),
+    };
+    return unsafe { (*v_http_response).retcode };
+}
+
+// Perform HTTP/S DELETE request
+#[no_mangle]
+pub extern "C" fn ruxc_http_delete(
+            v_http_request: *const RuxcHTTPRequest,
+            v_http_response: *mut RuxcHTTPResponse
+        ) -> libc::c_int
+{
+    let reuse = unsafe { (*v_http_request).reuse as i32 };
+    match reuse {
+        1 => ruxc_http_request_perform_reuse(v_http_request, v_http_response, HTTPMethodType::MethodDELETE).ok(),
+        2 => ruxc_http_request_perform_hashmap(v_http_request, v_http_response, HTTPMethodType::MethodDELETE).ok(),
+        _ => ruxc_http_request_perform_once(v_http_request, v_http_response, HTTPMethodType::MethodDELETE).ok(),
+    };
     return unsafe { (*v_http_response).retcode };
 }
