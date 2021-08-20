@@ -15,7 +15,7 @@ typedef struct RuxcHTTPRequest {
     int timeout_write;   /* Write timeout in milliseconds */
     int tlsmode;         /* TLS mode: 0 - accept all certs; 1 - accept only trusted certs */
     int flags;           /* Internal flags - not in use yet */
-    int debug;           /* Debug mode: 0 - no debug; 1 - print errors; 2 - print debug */
+    int debug;           /* Debug mode: 0 - no debug; 1 - error; 2 - info; 3 - debug */
     int reuse;           /* Reuse connection mode: 0 - do not reuse;
                           *   1 - single connection; 2 - connections hashmap */
     int retry;           /* How many tries to attempt if not getting 200ok */
