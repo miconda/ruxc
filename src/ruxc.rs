@@ -180,15 +180,28 @@ fn ruxc_print_log(logtype: i32, debug: i32, level: i32, message: String) {
 fn ruxc_http_agent_builder(v_http_request: *const RuxcHTTPRequest)
         -> ureq::AgentBuilder
 {
-    let tlsmode = unsafe { (*v_http_request).tlsmode as i32 };
+    let v_tlsmode = unsafe { (*v_http_request).tlsmode as i32 };
+    let v_timeout_connect = unsafe { (*v_http_request).timeout_connect as u64};
+    let v_timeout_read = unsafe { (*v_http_request).timeout_read as u64};
+    let v_timeout_write = unsafe { (*v_http_request).timeout_write as u64};
+    let v_timeout = unsafe { (*v_http_request).timeout as u64};
 
-    let mut builder = ureq::builder()
-        .timeout_connect(std::time::Duration::from_millis(unsafe { (*v_http_request).timeout_connect as u64}))
-        .timeout_read(std::time::Duration::from_millis(unsafe { (*v_http_request).timeout_read as u64}))
-        .timeout_write(std::time::Duration::from_millis(unsafe { (*v_http_request).timeout_write as u64}))
-        .timeout(std::time::Duration::from_millis(unsafe { (*v_http_request).timeout as u64}));
+    let mut builder = ureq::builder();
 
-    if tlsmode == 0 {
+    if v_timeout_connect > 0 {
+        builder = builder.timeout_connect(std::time::Duration::from_millis(v_timeout_connect))
+    }
+    if v_timeout_read > 0 {
+        builder = builder.timeout_read(std::time::Duration::from_millis(v_timeout_read))
+    }
+    if v_timeout_write > 0 {
+        builder = builder.timeout_write(std::time::Duration::from_millis(v_timeout_write))
+    }
+    if v_timeout > 0 {
+        builder = builder.timeout(std::time::Duration::from_millis(v_timeout));
+    }
+
+    if v_tlsmode == 0 {
         let mut client_config = rustls::ClientConfig::new();
         client_config
             .dangerous()
