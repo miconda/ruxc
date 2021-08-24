@@ -2,8 +2,10 @@
 
 `RUst eXports to C`
 
-C/C++ library exporting useful functions written in Rust, such as simple HTTP/S
-client functions for doing GET or POST requests.
+C/C++ library exporting useful functions written in Rust.
+
+First group of functions offer a simple HTTP client library, with functions
+for doing GET, POST or DELETE requests. It has support for HTTPS.
 
 ## Build ##
 
