@@ -9,7 +9,6 @@ extern crate libc;
 
 use std;
 use rustls;
-use webpki;
 use url;
 use ureq;
 use std::collections::HashMap;
@@ -133,17 +132,19 @@ impl From<url::ParseError> for Error {
     }
 }
 
-struct AcceptAll {}
+struct TLSAcceptAllCerts {}
 
-impl rustls::ServerCertVerifier for AcceptAll {
+impl rustls::client::ServerCertVerifier for TLSAcceptAllCerts {
     fn verify_server_cert(
         &self,
-        _roots: &rustls::RootCertStore,
-        _presented_certs: &[rustls::Certificate],
-        _dns_name: webpki::DNSNameRef<'_>,
-        _ocsp_response: &[u8],
-    ) -> Result<rustls::ServerCertVerified, rustls::TLSError> {
-        Ok(rustls::ServerCertVerified::assertion())
+        _end_entity: &rustls::Certificate,
+        _intermediates: &[rustls::Certificate],
+        _server_name: &rustls::ServerName,
+        _scts: &mut dyn Iterator<Item = &[u8]>,
+        _ocsp: &[u8],
+        _now: std::time::SystemTime,
+    ) -> Result<rustls::client::ServerCertVerified, rustls::Error> {
+        Ok(rustls::client::ServerCertVerified::assertion())
     }
 }
 
@@ -202,10 +203,13 @@ fn ruxc_http_agent_builder(v_http_request: *const RuxcHTTPRequest)
     }
 
     if v_tlsmode == 0 {
-        let mut client_config = rustls::ClientConfig::new();
+        let mut client_config = rustls::ClientConfig::builder()
+                .with_safe_defaults()
+                .with_root_certificates(rustls::RootCertStore::empty())
+                .with_no_client_auth();
         client_config
             .dangerous()
-            .set_certificate_verifier(std::sync::Arc::new(AcceptAll {}));
+            .set_certificate_verifier(std::sync::Arc::new(TLSAcceptAllCerts {}));
         builder = builder.tls_config(std::sync::Arc::new(client_config));
     }
 

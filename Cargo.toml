@@ -8,11 +8,9 @@ edition = "2018"
 
 [dependencies]
 libc = "0.2"
-ureq = "=2.1.0"
+ureq = "2.3"
 url = "2.2"
-rustls = {version = "0.19", features = ["dangerous_configuration"]}
-webpki = "0.21"
-webpki-roots = "0.21"
+rustls = {version = "0.20", features = ["dangerous_configuration"]}
 
 [lib]
 name = "ruxc"
