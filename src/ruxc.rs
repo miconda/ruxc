@@ -261,7 +261,7 @@ fn ruxc_http_request_perform(
                 ruxc_print_log(logtype, debug, 3, format!("adding headers: [[{}]]", r_headers_str));
             }
             for line in r_headers_str.lines() {
-                let cpos = line.chars().position(|c| c == ':').unwrap();
+                let cpos = line.chars().position(|c| c == ':').unwrap_or(0);
                 if cpos > 0 {
                     req = req.set(&line[0..cpos], &line[(cpos+1)..].trim());
                 }
