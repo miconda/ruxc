@@ -10,7 +10,7 @@ edition = "2018"
 libc = ">=0.2.0,<0.3.0"
 ureq = ">=2.3.0,<2.4.0"
 url = ">=2.2.0,<2.3.0"
-rustls = {version = ">=0.20.0,<=0.21.0", features = ["dangerous_configuration"]}
+rustls = {version = ">=0.20.0,<0.21.0", features = ["dangerous_configuration"]}
 
 [lib]
 name = "ruxc"
