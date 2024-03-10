@@ -66,7 +66,7 @@ pub extern "C" fn ruxc_http_response_release(v_http_response: *mut RuxcHTTPRespo
         if (*v_http_response).resdata.is_null() {
             return;
         }
-        std::ffi::CString::from_raw((*v_http_response).resdata)
+        let _ = std::ffi::CString::from_raw((*v_http_response).resdata);
     };
 }
 
