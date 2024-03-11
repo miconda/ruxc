@@ -3,6 +3,7 @@
 #define __LIBRUXC_H__
 
 typedef struct RuxcHTTPRequest {
+    char* method;        /* Method */
     char* url;           /* HTTP/S URL */
     int url_len;         /* HTTP/S URL length */
     char* headers;       /* Extra headers separated by \r\n */
@@ -43,6 +44,12 @@ extern int ruxc_http_post(RuxcHTTPRequest *v_http_request,
  * Perform a HTTP/S DELETE request
  */
 extern int ruxc_http_delete(RuxcHTTPRequest *v_http_request,
+		RuxcHTTPResponse *v_http_response);
+
+/**
+ * Perform a HTTP/S CUSTOM request
+ */
+extern int ruxc_http_request(RuxcHTTPRequest *v_http_request,
 		RuxcHTTPResponse *v_http_response);
 
 /**
