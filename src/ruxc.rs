@@ -26,10 +26,12 @@ enum HTTPMethodType {
     MethodGET,
     MethodPOST,
     MethodDELETE,
+    MethodCUSTOM,
 }
 
 #[repr(C)]
 pub struct RuxcHTTPRequest {
+    pub method: *const libc::c_char,
     pub url: *const libc::c_char,
     pub url_len: libc::c_int,
     pub headers: *const libc::c_char,
@@ -226,11 +228,16 @@ fn ruxc_http_request_perform(
     let debug = unsafe { (*v_http_request).debug as i32 };
     let logtype = unsafe { (*v_http_request).logtype as i32 };
 
+    let c_met_str = unsafe {
+        if !(*v_http_request).method.is_null() { std::ffi::CStr::from_ptr((*v_http_request).method) } else { std::ffi::CStr::from_bytes_with_nul(b"GET\0").unwrap() }
+    };
+    let r_met_str = c_met_str.to_str().unwrap();
+
     let c_url_str = unsafe {
         std::ffi::CStr::from_ptr((*v_http_request).url)
     };
-
     let r_url_str = c_url_str.to_str().unwrap();
+
     let mut req: ureq::Request;
 
     match *v_method {
@@ -245,6 +252,12 @@ fn ruxc_http_request_perform(
                 ruxc_print_log(logtype, debug, 2, format!("doing HTTP DELETE - url: {}", r_url_str));
             }
             req = agent.delete(r_url_str);
+        },
+        HTTPMethodType::MethodCUSTOM => {
+            if debug != 0 {
+                ruxc_print_log(logtype, debug, 2, format!("doing HTTP CUSTOM {} - url: {}", r_met_str, r_url_str));
+            }
+            req = agent.request(r_met_str, r_url_str);
         },
         _ => {
             if debug != 0 {
@@ -272,7 +285,7 @@ fn ruxc_http_request_perform(
     let res: ureq::Response;
     let exres: std::result::Result<ureq::Response, ureq::Error>;
 
-    if *v_method == HTTPMethodType::MethodPOST {
+    if *v_method == HTTPMethodType::MethodPOST || *v_method == HTTPMethodType::MethodCUSTOM {
         let mut r_body_str: &str = "";
         unsafe {
             if !(*v_http_request).data.is_null() && (*v_http_request).data_len > 0 {
@@ -550,6 +563,22 @@ pub extern "C" fn ruxc_http_delete(
         1 => ruxc_http_request_perform_reuse(v_http_request, v_http_response, HTTPMethodType::MethodDELETE).ok(),
         2 => ruxc_http_request_perform_hashmap(v_http_request, v_http_response, HTTPMethodType::MethodDELETE).ok(),
         _ => ruxc_http_request_perform_once(v_http_request, v_http_response, HTTPMethodType::MethodDELETE).ok(),
+    };
+    return unsafe { (*v_http_response).retcode };
+}
+
+// Perform HTTP/S CUSTOM request
+#[no_mangle]
+pub extern "C" fn ruxc_http_request(
+            v_http_request: *const RuxcHTTPRequest,
+            v_http_response: *mut RuxcHTTPResponse
+        ) -> libc::c_int
+{
+    let reuse = unsafe { (*v_http_request).reuse as i32 };
+    match reuse {
+        1 => ruxc_http_request_perform_reuse(v_http_request, v_http_response, HTTPMethodType::MethodCUSTOM).ok(),
+        2 => ruxc_http_request_perform_hashmap(v_http_request, v_http_response, HTTPMethodType::MethodCUSTOM).ok(),
+        _ => ruxc_http_request_perform_once(v_http_request, v_http_response, HTTPMethodType::MethodCUSTOM).ok(),
     };
     return unsafe { (*v_http_response).retcode };
 }
