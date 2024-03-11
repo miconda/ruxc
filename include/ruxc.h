@@ -2,6 +2,11 @@
 #ifndef __LIBRUXC_H__
 #define __LIBRUXC_H__
 
+/* library version string - x.y.z */
+#define LIBRUXC_VERSION_STR "1.1.0"
+/* library version id - 3 digits for each x.y.z */
+#define LIBRUXC_VERSION_ID 1001000
+
 typedef struct RuxcHTTPRequest {
     char* method;        /* Method */
     char* url;           /* HTTP/S URL */
