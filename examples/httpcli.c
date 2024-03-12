@@ -22,6 +22,7 @@ Options:\n\
     -a count      number of retry attempts\n\
     -d level      debug level (0 - no logs; 1 - errors; 2 - debug)\n\
     -l type       log type (0 - print to stdout; 1 - print to syslog)\n\
+    -m method     method value\n\
     -n count      number of requests to be sent\n\
     -p            do http post instead of get\n\
     -P data       http post data\n\
@@ -58,9 +59,10 @@ int main(int argc, char *argv[])
 	char *postdata = "{ \"info\": \"testing\", \"id\": 80 }";
 	int reuse = 0;
 	char *url = NULL;
+	char *method = NULL;
 
 	opterr=0;
-	while ((c=getopt(argc,argv, "a:d:l:n:P:r:t:u:hp"))!=-1){
+	while ((c=getopt(argc,argv, "a:d:l:m:n:P:r:t:u:hp"))!=-1){
 		switch(c){
 			case 'a':
 				retry = atoi(optarg);
@@ -77,6 +79,9 @@ int main(int argc, char *argv[])
 			case 'd':
 				debug = atoi(optarg);
 				if(debug<0 || debug>2) { debug = 0; }
+				break;
+			case 'm':
+				method = optarg;
 				break;
 			case 'p':
 				post = 1;
@@ -105,6 +110,7 @@ int main(int argc, char *argv[])
 	if(debug==2) {
 		openlog(argv[0], LOG_PID, LOG_DAEMON);
 	}
+	v_http_request.method = method;
 	v_http_request.timeout = timeout;
 	v_http_request.timeout_connect = timeout;
 	v_http_request.timeout_read = timeout;
@@ -132,7 +138,15 @@ int main(int argc, char *argv[])
 		v_http_request.headers = hdrbuf;
 		v_http_request.headers_len = strlen(v_http_request.headers);
 
-		if(post==1) {
+		if(method != NULL) {
+			if(postdata != NULL && strlen(postdata) > 0) {
+				v_http_request.data = postdata;
+				v_http_request.data_len = strlen(v_http_request.data);
+			}
+			gettimeofday(&tvb, NULL);
+			ruxc_http_post(&v_http_request, &v_http_response);
+			gettimeofday(&tve, NULL);
+		} else if(post==1) {
 			v_http_request.data = postdata;
 			v_http_request.data_len = strlen(v_http_request.data);
 			gettimeofday(&tvb, NULL);
