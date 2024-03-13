@@ -46,7 +46,7 @@ int main(int argc, char *argv[])
 		NULL
 	};
 	int post = 0;
-	char c = 0;
+	int c = 0;
 	int ncount = 1;
 	int i = 0;
 	int retry = 0;
@@ -62,8 +62,9 @@ int main(int argc, char *argv[])
 	char *method = NULL;
 
 	opterr=0;
-	while ((c=getopt(argc,argv, "a:d:l:m:n:P:r:t:u:hp"))!=-1){
-		switch(c){
+	while ((c=getopt(argc, argv, "a:d:l:m:n:P:r:t:u:hp")) != -1) {
+		i++;
+		switch(c) {
 			case 'a':
 				retry = atoi(optarg);
 				if(retry<0) { retry = 0; }
@@ -102,7 +103,7 @@ int main(int argc, char *argv[])
 				exit(0);
 				break;
 			default:
-				printf("unknown cli option %c\n", c);
+				printf("unknown cli option %c (%d) (i: %d)\n", (char)c, c, i);
 				exit(-1);
 		}
 	}
@@ -132,7 +133,7 @@ int main(int argc, char *argv[])
 			}
 		}
 		v_http_request.url_len = strlen(v_http_request.url);
-		printf("\n* c:: request type=%s url=%s\n", (post==1)?"post":"get", v_http_request.url);
+		printf("\n* c:: request type=%s url=%s\n", (method!=NULL)?method:((post==1)?"post":"get"), v_http_request.url);
 
 		snprintf(hdrbuf, 255, "X-My-Key: KEY-%d\r\nX-Info: REQUEST-%d\r\n", i, i);
 		v_http_request.headers = hdrbuf;
