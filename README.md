@@ -1,4 +1,4 @@
-# RUXC #
+# RUXC
 
 `RUst eXports to C`
 
@@ -7,9 +7,9 @@ C/C++ library exporting useful functions written in Rust.
 First group of functions offer a simple HTTP client library, with functions
 for doing GET, POST or DELETE requests. It has support for HTTPS.
 
-## Build ##
+## Build
 
-### Build With Cargo ###
+### Build With Cargo
 
 The library can be build directly using `cargo` tool that comes with `rust`:
 
@@ -24,7 +24,7 @@ files are in the folder `target/release/`.
 
 The C structures and functions are available in `include/ruxc.h` file.
 
-### Build With Make ###
+### Build With Make
 
 For convenience, a `Makefile` is available to simplify the build and install
 tasks:
@@ -36,9 +36,9 @@ make lib
 make install
 ```
 
-## C API Functions ##
+## C API Functions
 
-### HTTP Client Functions ###
+### HTTP Client Functions
 
 The library offers HTTP client functions to perform blocking GET or POST requests,
 with option to reuse connections per process. The functions are built on `ureq` Rust
@@ -59,7 +59,7 @@ certificate.
 For usage example, see also `examples/httpcli.c` or the `ruxc` module of Kamailio
 project (https://github.com/kamailio/kamailio/tree/master/src/modules/ruxc).
 
-### Example Of Usage ###
+### Example Of Usage
 
 Basic C HTTP GET client:
 
@@ -117,13 +117,13 @@ gcc -o examples/httpcli -I include/ examples/httpcli.c target/release/libruxc.a 
 ./examples/httpcli
 ```
 
-## License ##
+## License
 
 MIT
 
 **Copyright**: `Daniel-Constantin Mierla <miconda@gmail.com>`
 
-## Credits ##
+## Credits
 
 This library is built using:
 
