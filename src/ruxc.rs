@@ -12,6 +12,7 @@ use std;
 use std::collections::HashMap;
 use ureq;
 use url;
+use webpki_roots;
 
 thread_local!(static HTTPAGENT: std::cell::RefCell<ureq::Agent> = std::cell::RefCell::new(ureq::Agent::new()));
 
@@ -133,20 +134,79 @@ impl From<url::ParseError> for Error {
     }
 }
 
+#[derive(Debug)]
 struct TLSAcceptAllCerts {}
 
-impl rustls::client::ServerCertVerifier for TLSAcceptAllCerts {
+impl rustls::client::danger::ServerCertVerifier for TLSAcceptAllCerts {
     fn verify_server_cert(
         &self,
-        _end_entity: &rustls::Certificate,
-        _intermediates: &[rustls::Certificate],
-        _server_name: &rustls::ServerName,
-        _scts: &mut dyn Iterator<Item = &[u8]>,
+        _end_entity: &rustls_pki_types::CertificateDer,
+        _intermediates: &[rustls_pki_types::CertificateDer],
+        _server_name: &rustls_pki_types::ServerName,
         _ocsp: &[u8],
-        _now: std::time::SystemTime,
-    ) -> Result<rustls::client::ServerCertVerified, rustls::Error> {
-        Ok(rustls::client::ServerCertVerified::assertion())
+        _now: rustls_pki_types::UnixTime,
+    ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
+        Ok(rustls::client::danger::ServerCertVerified::assertion())
     }
+
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &rustls_pki_types::CertificateDer<'_>,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        let store = get_root_store();
+        let builder = rustls::client::WebPkiServerVerifier::builder(store.into());
+        let verifier_result = builder.build();
+
+        match verifier_result {
+            Ok(verifier) => {
+                verifier.verify_tls12_signature(message, cert, dss)
+            }
+            Err(_err) => Err(rustls::Error::General("Cannot build a verifier".to_string())),
+        }
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &rustls_pki_types::CertificateDer<'_>,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        let store = get_root_store();
+        let builder = rustls::client::WebPkiServerVerifier::builder(store.into());
+        let verifier_result = builder.build();
+
+        match verifier_result {
+            Ok(verifier) => {
+                verifier.verify_tls13_signature(message, cert, dss)
+            }
+            Err(_err) => {
+                Err(rustls::Error::General("Cannot build a verifier".to_string()))
+            }
+        }
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+        let store = get_root_store();
+        let builder = rustls::client::WebPkiServerVerifier::builder(store.into());
+        let verifier_result = builder.build();
+
+        match verifier_result {
+            Ok(verifier) => { 
+                verifier.supported_verify_schemes()
+            }
+            Err(_err) => {
+                Vec::new()
+            }
+        }
+    }
+}
+
+fn get_root_store() -> rustls::RootCertStore {
+    rustls::RootCertStore::from_iter(
+        webpki_roots::TLS_SERVER_ROOTS.iter().cloned(),
+    )
 }
 
 // logtype: 0 - stdout; 1 - syslog
@@ -186,6 +246,8 @@ fn ruxc_http_agent_builder(v_http_request: *const RuxcHTTPRequest) -> ureq::Agen
     let v_timeout_write = unsafe { (*v_http_request).timeout_write as u64 };
     let v_timeout = unsafe { (*v_http_request).timeout as u64 };
 
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+
     let mut builder = ureq::builder();
 
     if v_timeout_connect > 0 {
@@ -203,7 +265,6 @@ fn ruxc_http_agent_builder(v_http_request: *const RuxcHTTPRequest) -> ureq::Agen
 
     if v_tlsmode == 0 {
         let mut client_config = rustls::ClientConfig::builder()
-            .with_safe_defaults()
             .with_root_certificates(rustls::RootCertStore::empty())
             .with_no_client_auth();
         client_config
