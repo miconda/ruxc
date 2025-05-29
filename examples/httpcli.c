@@ -86,6 +86,9 @@ int main(int argc, char *argv[])
 			case 'm':
 				method = optarg;
 				break;
+			case 'n':
+				ncount =  atoi(optarg);
+				break;
 			case 'p':
 				post = 1;
 				break;
