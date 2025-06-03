@@ -28,6 +28,7 @@ Options:\n\
     -P data       http post data\n\
     -r mode       reuse mode\n\
     -t usec       microseconds timeout\n\
+		-T tls_mode   verify ssl mode (1 to verify ssl, 0 to skip)\n\
     -u url        URL to request\n\
     -h            this help message\n\
 ";
@@ -58,11 +59,12 @@ int main(int argc, char *argv[])
 	int timeout = 5000;
 	char *postdata = "{ \"info\": \"testing\", \"id\": 80 }";
 	int reuse = 0;
+	int verify_ssl = 1;
 	char *url = NULL;
 	char *method = NULL;
 
 	opterr=0;
-	while ((c=getopt(argc, argv, "a:d:l:m:n:P:r:t:u:hp")) != -1) {
+	while ((c=getopt(argc, argv, "a:d:l:m:n:P:r:t:T:u:hp")) != -1) {
 		i++;
 		switch(c) {
 			case 'a':
@@ -84,6 +86,9 @@ int main(int argc, char *argv[])
 			case 'm':
 				method = optarg;
 				break;
+			case 'n':
+				ncount =  atoi(optarg);
+				break;
 			case 'p':
 				post = 1;
 				break;
@@ -93,6 +98,10 @@ int main(int argc, char *argv[])
 			case 't':
 				timeout = atoi(optarg);
 				if(timeout<=0) { timeout = 5000; }
+				break;
+			case 'T':
+				verify_ssl = atoi(optarg);
+				if(verify_ssl<0 || verify_ssl>2) { verify_ssl = 1; }
 				break;
 			case 'u':
 				url = optarg;
@@ -120,6 +129,7 @@ int main(int argc, char *argv[])
 	v_http_request.debug = debug;
 	v_http_request.reuse = reuse;
 	v_http_request.retry = retry;
+	v_http_request.tlsmode = verify_ssl;
 
 	for(i = 0; i<ncount; i++) {
 		printf("\n* c:: request %d =========================\n\n", i);
