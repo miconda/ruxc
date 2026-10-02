@@ -1,4 +1,4 @@
-name: Release macOS binaries
+name: Release binaries
 
 on:
   release:
@@ -8,7 +8,7 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  build-macos:
     name: Build macOS ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
     strategy:
@@ -79,16 +79,88 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  build-linux:
+    name: Build Linux ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+
+    steps:
+      - name: Check out release
+        uses: actions/checkout@v7
+
+      - name: Install Rust target
+        env:
+          TARGET: ${{ matrix.target }}
+        run: rustup target add "$TARGET"
+
+      - name: Test
+        run: cargo test --locked
+
+      - name: Build library
+        env:
+          TARGET: ${{ matrix.target }}
+        run: cargo build --release --locked --target "$TARGET"
+
+      - name: Build C example
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          cc \
+            -Iinclude \
+            -o "target/$TARGET/release/httpcli" \
+            examples/httpcli.c \
+            "target/$TARGET/release/libruxc.a" \
+            -lpthread \
+            -ldl
+
+      - name: Package release archive
+        env:
+          ARCH: ${{ matrix.arch }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          package="ruxc-linux-$ARCH"
+          package_dir="dist/$package"
+
+          mkdir -p "$package_dir/bin" "$package_dir/include" "$package_dir/lib"
+          cp "target/$TARGET/release/httpcli" "$package_dir/bin/"
+          cp include/ruxc.h "$package_dir/include/"
+          cp "target/$TARGET/release/libruxc.a" "$package_dir/lib/"
+          cp "target/$TARGET/release/libruxc.so" "$package_dir/lib/"
+          cp LICENSE README.md "$package_dir/"
+
+          tar -C dist -czf "dist/$package.tar.gz" "$package"
+          cd dist
+          sha256sum "$package.tar.gz" > "$package.tar.gz.sha256"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-linux-${{ matrix.arch }}
+          path: |
+            dist/*.tar.gz
+            dist/*.sha256
+          if-no-files-found: error
+          retention-days: 1
+
   publish:
     name: Attach binaries to release
-    needs: build
+    needs: [build-macos, build-linux]
     runs-on: ubuntu-24.04
 
     steps:
       - name: Download release artifacts
         uses: actions/download-artifact@v7
         with:
-          pattern: release-macos-*
+          pattern: release-*
           path: dist
           merge-multiple: true
 
