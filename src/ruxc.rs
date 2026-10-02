@@ -238,26 +238,46 @@ fn ruxc_print_log(logtype: i32, debug: i32, level: i32, message: String) {
     }
 }
 
-fn ruxc_http_agent_builder(v_http_request: *const RuxcHTTPRequest) -> ureq::AgentBuilder {
+fn ruxc_timeout_from_millis(
+    value: libc::c_int,
+    field: &str,
+) -> Result<Option<std::time::Duration>, Error> {
+    if value < 0 {
+        return Err(StringError::from(format!("{} must not be negative", field)).into());
+    }
+    if value == 0 {
+        return Ok(None);
+    }
+
+    Ok(Some(std::time::Duration::from_millis(value as u64)))
+}
+
+fn ruxc_http_agent_builder(
+    v_http_request: *const RuxcHTTPRequest,
+) -> Result<ureq::AgentBuilder, Error> {
     let v_tlsmode = unsafe { (*v_http_request).tlsmode as i32 };
-    let v_timeout_connect = unsafe { (*v_http_request).timeout_connect as u64 };
-    let v_timeout_read = unsafe { (*v_http_request).timeout_read as u64 };
-    let v_timeout_write = unsafe { (*v_http_request).timeout_write as u64 };
-    let v_timeout = unsafe { (*v_http_request).timeout as u64 };
+    let v_timeout_connect =
+        unsafe { ruxc_timeout_from_millis((*v_http_request).timeout_connect, "connect timeout")? };
+    let v_timeout_read =
+        unsafe { ruxc_timeout_from_millis((*v_http_request).timeout_read, "read timeout")? };
+    let v_timeout_write =
+        unsafe { ruxc_timeout_from_millis((*v_http_request).timeout_write, "write timeout")? };
+    let v_timeout =
+        unsafe { ruxc_timeout_from_millis((*v_http_request).timeout, "overall timeout")? };
 
     let mut builder = ureq::builder();
 
-    if v_timeout_connect > 0 {
-        builder = builder.timeout_connect(std::time::Duration::from_millis(v_timeout_connect))
+    if let Some(timeout) = v_timeout_connect {
+        builder = builder.timeout_connect(timeout)
     }
-    if v_timeout_read > 0 {
-        builder = builder.timeout_read(std::time::Duration::from_millis(v_timeout_read))
+    if let Some(timeout) = v_timeout_read {
+        builder = builder.timeout_read(timeout)
     }
-    if v_timeout_write > 0 {
-        builder = builder.timeout_write(std::time::Duration::from_millis(v_timeout_write))
+    if let Some(timeout) = v_timeout_write {
+        builder = builder.timeout_write(timeout)
     }
-    if v_timeout > 0 {
-        builder = builder.timeout(std::time::Duration::from_millis(v_timeout));
+    if let Some(timeout) = v_timeout {
+        builder = builder.timeout(timeout);
     }
 
     if v_tlsmode == 0 {
@@ -271,7 +291,7 @@ fn ruxc_http_agent_builder(v_http_request: *const RuxcHTTPRequest) -> ureq::Agen
         builder = builder.tls_config(std::sync::Arc::new(client_config));
     }
 
-    return builder;
+    Ok(builder)
 }
 
 fn ruxc_http_response_storing(status: u16, final_attempt: bool) -> bool {
@@ -510,7 +530,7 @@ fn ruxc_http_request_perform_once(
         );
     }
 
-    let builder = ruxc_http_agent_builder(v_http_request);
+    let builder = ruxc_http_agent_builder(v_http_request)?;
 
     let agent = builder.build();
 
@@ -566,7 +586,7 @@ fn ruxc_http_request_perform_reuse(
             );
         }
 
-        let builder = ruxc_http_agent_builder(v_http_request);
+        let builder = ruxc_http_agent_builder(v_http_request)?;
 
         HTTPAGENT.with(|agent| {
             *agent.borrow_mut() = builder.build();
@@ -653,7 +673,7 @@ fn ruxc_http_request_perform_hashmap(
                     format!("initializing http agent for [{}]", htnewkey),
                 );
             }
-            let builder = ruxc_http_agent_builder(v_http_request);
+            let builder = ruxc_http_agent_builder(v_http_request)?;
             ht.insert(htnewkey, builder.build());
         }
         if let Some(agent) = ht.get(&htkey) {
@@ -782,9 +802,9 @@ pub extern "C" fn ruxc_http_request(
 mod tests {
     use super::{
         ruxc_buffer_from_raw_parts, ruxc_http_request, ruxc_http_response_release,
-        ruxc_http_response_store_body, ruxc_http_response_storing, ruxc_utf8_buffer_from_raw_parts,
-        RuxcHTTPRequest, RuxcHTTPResponse, RUXC_HTTP_RET_INVALID_ARGUMENT,
-        RUXC_HTTP_RET_INVALID_INPUT, RUXC_HTTP_RET_PANIC,
+        ruxc_http_response_store_body, ruxc_http_response_storing, ruxc_timeout_from_millis,
+        ruxc_utf8_buffer_from_raw_parts, RuxcHTTPRequest, RuxcHTTPResponse,
+        RUXC_HTTP_RET_INVALID_ARGUMENT, RUXC_HTTP_RET_INVALID_INPUT, RUXC_HTTP_RET_PANIC,
     };
 
     #[test]
@@ -868,6 +888,29 @@ mod tests {
 
         assert_eq!(
             ruxc_http_request(&request, &mut response),
+            RUXC_HTTP_RET_INVALID_INPUT
+        );
+        assert_eq!(response.retcode, RUXC_HTTP_RET_INVALID_INPUT);
+    }
+
+    #[test]
+    fn validates_timeout_values_before_conversion() {
+        assert!(ruxc_timeout_from_millis(-1, "test timeout").is_err());
+        assert_eq!(ruxc_timeout_from_millis(0, "test timeout").unwrap(), None);
+        assert_eq!(
+            ruxc_timeout_from_millis(25, "test timeout").unwrap(),
+            Some(std::time::Duration::from_millis(25))
+        );
+
+        let url = b"http://127.0.0.1/";
+        let mut request: RuxcHTTPRequest = unsafe { std::mem::zeroed() };
+        let mut response: RuxcHTTPResponse = unsafe { std::mem::zeroed() };
+        request.url = url.as_ptr().cast();
+        request.url_len = url.len() as i32;
+        request.timeout = -1;
+
+        assert_eq!(
+            super::ruxc_http_get(&request, &mut response),
             RUXC_HTTP_RET_INVALID_INPUT
         );
         assert_eq!(response.retcode, RUXC_HTTP_RET_INVALID_INPUT);
