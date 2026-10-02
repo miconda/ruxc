@@ -133,6 +133,38 @@ impl From<url::ParseError> for Error {
     }
 }
 
+unsafe fn ruxc_buffer_from_raw_parts<'a>(
+    ptr: *const libc::c_char,
+    len: libc::c_int,
+    field: &str,
+) -> Result<&'a [u8], Error> {
+    if len < 0 {
+        return Err(StringError::from(format!("{} length must not be negative", field)).into());
+    }
+    if len == 0 {
+        return Ok(&[]);
+    }
+    if ptr.is_null() {
+        return Err(StringError::from(format!(
+            "{} pointer is null while its length is positive",
+            field
+        ))
+        .into());
+    }
+
+    Ok(std::slice::from_raw_parts(ptr.cast::<u8>(), len as usize))
+}
+
+unsafe fn ruxc_utf8_buffer_from_raw_parts<'a>(
+    ptr: *const libc::c_char,
+    len: libc::c_int,
+    field: &str,
+) -> Result<&'a str, Error> {
+    let bytes = ruxc_buffer_from_raw_parts(ptr, len, field)?;
+    std::str::from_utf8(bytes)
+        .map_err(|err| StringError::from(format!("{} is not valid UTF-8: {}", field, err)).into())
+}
+
 struct TLSAcceptAllCerts {}
 
 impl rustls::client::ServerCertVerifier for TLSAcceptAllCerts {
@@ -238,8 +270,9 @@ fn ruxc_http_request_perform(
     };
     let r_met_str = c_met_str.to_str().unwrap();
 
-    let c_url_str = unsafe { std::ffi::CStr::from_ptr((*v_http_request).url) };
-    let r_url_str = c_url_str.to_str().unwrap();
+    let r_url_str = unsafe {
+        ruxc_utf8_buffer_from_raw_parts((*v_http_request).url, (*v_http_request).url_len, "URL")?
+    };
 
     let mut req: ureq::Request;
 
@@ -291,10 +324,12 @@ fn ruxc_http_request_perform(
     }
 
     unsafe {
-        if !(*v_http_request).headers.is_null() && (*v_http_request).headers_len > 0 {
-            let r_headers_str = std::ffi::CStr::from_ptr((*v_http_request).headers)
-                .to_str()
-                .unwrap();
+        let r_headers_str = ruxc_utf8_buffer_from_raw_parts(
+            (*v_http_request).headers,
+            (*v_http_request).headers_len,
+            "headers",
+        )?;
+        if !r_headers_str.is_empty() {
             if debug != 0 {
                 ruxc_print_log(
                     logtype,
@@ -304,8 +339,7 @@ fn ruxc_http_request_perform(
                 );
             }
             for line in r_headers_str.lines() {
-                let cpos = line.chars().position(|c| c == ':').unwrap_or(0);
-                if cpos > 0 {
+                if let Some(cpos) = line.find(':').filter(|cpos| *cpos > 0) {
                     req = req.set(&line[0..cpos], &line[(cpos + 1)..].trim());
                 }
             }
@@ -316,18 +350,22 @@ fn ruxc_http_request_perform(
     let exres: std::result::Result<ureq::Response, ureq::Error>;
 
     if *v_method == HTTPMethodType::MethodPOST || *v_method == HTTPMethodType::MethodCUSTOM {
-        let mut r_body_str: &str = "";
-        unsafe {
-            if !(*v_http_request).data.is_null() && (*v_http_request).data_len > 0 {
-                r_body_str = std::ffi::CStr::from_ptr((*v_http_request).data)
-                    .to_str()
-                    .unwrap();
-            }
-        }
+        let r_body = unsafe {
+            ruxc_buffer_from_raw_parts(
+                (*v_http_request).data,
+                (*v_http_request).data_len,
+                "request body",
+            )?
+        };
         if debug != 0 {
-            ruxc_print_log(logtype, debug, 3, format!("post body: [[{}]]", r_body_str));
+            ruxc_print_log(
+                logtype,
+                debug,
+                3,
+                format!("post body: [[{}]]", String::from_utf8_lossy(r_body)),
+            );
         }
-        exres = req.send_string(r_body_str);
+        exres = req.send_bytes(r_body);
     } else {
         if debug != 0 {
             ruxc_print_log(logtype, debug, 3, format!("get request"));
@@ -533,9 +571,8 @@ fn ruxc_http_request_perform_hashmap(
     let logtype = unsafe { (*v_http_request).logtype as i32 };
 
     let r_url_str = unsafe {
-        std::ffi::CStr::from_ptr((*v_http_request).url)
-            .to_string_lossy()
-            .into_owned()
+        ruxc_utf8_buffer_from_raw_parts((*v_http_request).url, (*v_http_request).url_len, "URL")?
+            .to_owned()
     };
 
     let url = url::Url::parse(&r_url_str)?;
@@ -723,12 +760,43 @@ pub extern "C" fn ruxc_http_request(
 
 #[cfg(test)]
 mod tests {
-    use super::ruxc_http_response_storing;
+    use super::{
+        ruxc_buffer_from_raw_parts, ruxc_http_response_storing, ruxc_utf8_buffer_from_raw_parts,
+    };
 
     #[test]
     fn stores_only_successful_or_final_retry_responses() {
         assert!(ruxc_http_response_storing(200, false));
         assert!(!ruxc_http_response_storing(503, false));
         assert!(ruxc_http_response_storing(503, true));
+    }
+
+    #[test]
+    fn reads_only_the_declared_buffer_length() {
+        let data = b"abcXYZ";
+        let value = unsafe {
+            ruxc_utf8_buffer_from_raw_parts(data.as_ptr().cast(), 3, "test buffer").unwrap()
+        };
+
+        assert_eq!(value, "abc");
+    }
+
+    #[test]
+    fn preserves_embedded_nul_bytes() {
+        let data = b"a\0b";
+        let value = unsafe {
+            ruxc_buffer_from_raw_parts(data.as_ptr().cast(), data.len() as i32, "test buffer")
+                .unwrap()
+        };
+
+        assert_eq!(value, data);
+    }
+
+    #[test]
+    fn rejects_invalid_buffer_metadata() {
+        assert!(unsafe { ruxc_buffer_from_raw_parts(std::ptr::null(), 1, "test buffer") }.is_err());
+        assert!(
+            unsafe { ruxc_buffer_from_raw_parts(std::ptr::null(), -1, "test buffer") }.is_err()
+        );
     }
 }
