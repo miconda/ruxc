@@ -215,11 +215,16 @@ fn ruxc_http_agent_builder(v_http_request: *const RuxcHTTPRequest) -> ureq::Agen
     return builder;
 }
 
+fn ruxc_http_response_storing(status: u16, final_attempt: bool) -> bool {
+    final_attempt || (200..=299).contains(&status)
+}
+
 fn ruxc_http_request_perform(
     agent: &ureq::Agent,
     v_http_request: *const RuxcHTTPRequest,
     v_http_response: *mut RuxcHTTPResponse,
     v_method: &HTTPMethodType,
+    final_attempt: bool,
 ) -> Result<(), Error> {
     let debug = unsafe { (*v_http_request).debug as i32 };
     let logtype = unsafe { (*v_http_request).logtype as i32 };
@@ -362,10 +367,9 @@ fn ruxc_http_request_perform(
         (*v_http_response).rescode = res.status() as i32;
     };
 
-    let retry = unsafe { (*v_http_request).retry as i32 };
-
-    if retry <= 0 || (res.status() >= 200 && res.status() <= 299) {
-        // store body only on no-retry or successful http response
+    if ruxc_http_response_storing(res.status(), final_attempt) {
+        // Store successful responses immediately and the last response after
+        // all retry attempts have been exhausted.
         let body: String = res.into_string()?;
 
         if debug != 0 {
@@ -423,7 +427,14 @@ fn ruxc_http_request_perform_once(
     let mut retry = unsafe { (*v_http_request).retry as i32 };
 
     loop {
-        ruxc_http_request_perform(&agent, v_http_request, v_http_response, &v_method).ok();
+        ruxc_http_request_perform(
+            &agent,
+            v_http_request,
+            v_http_response,
+            &v_method,
+            retry <= 0,
+        )
+        .ok();
         if retry <= 0 {
             break;
         }
@@ -487,6 +498,7 @@ fn ruxc_http_request_perform_reuse(
             v_http_request,
             v_http_response,
             &v_method,
+            retry <= 0,
         )
         .ok();
         if retry <= 0 {
@@ -565,7 +577,14 @@ fn ruxc_http_request_perform_hashmap(
             }
             let mut retry = unsafe { (*v_http_request).retry as i32 };
             loop {
-                ruxc_http_request_perform(&agent, v_http_request, v_http_response, &v_method).ok();
+                ruxc_http_request_perform(
+                    &agent,
+                    v_http_request,
+                    v_http_response,
+                    &v_method,
+                    retry <= 0,
+                )
+                .ok();
                 if retry <= 0 {
                     break;
                 }
@@ -700,4 +719,16 @@ pub extern "C" fn ruxc_http_request(
         .ok(),
     };
     return unsafe { (*v_http_response).retcode };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ruxc_http_response_storing;
+
+    #[test]
+    fn stores_only_successful_or_final_retry_responses() {
+        assert!(ruxc_http_response_storing(200, false));
+        assert!(!ruxc_http_response_storing(503, false));
+        assert!(ruxc_http_response_storing(503, true));
+    }
 }
