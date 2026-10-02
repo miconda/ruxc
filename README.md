@@ -36,6 +36,28 @@ make lib
 make install
 ```
 
+### Build With Docker
+
+Useful commands for building using a Docker container:
+
+``` shell
+docker run --rm \
+  -v "$PWD":/work \
+  -w /work \
+  rust:1.81-bookworm \
+  make
+
+# to avoid root-owned artifacts on Linux:
+docker run --rm \
+  --user "$(id -u):$(id -g)" \
+  -e HOME=/tmp \
+  -e CARGO_HOME=/tmp/cargo \
+  -v "$PWD":/work \
+  -w /work \
+  rust:1.81-bookworm \
+  make
+```
+
 ## C API Functions
 
 ### HTTP Client Functions
