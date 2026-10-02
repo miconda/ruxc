@@ -10,6 +10,7 @@ extern crate libc;
 use rustls;
 use std;
 use std::collections::HashMap;
+use std::io::Read;
 use ureq;
 use url;
 
@@ -58,17 +59,35 @@ pub struct RuxcHTTPResponse {
     pub resdata_len: libc::c_int,
 }
 
+const RUXC_HTTP_RET_ERROR: libc::c_int = -1;
+const RUXC_HTTP_RET_INVALID_ARGUMENT: libc::c_int = -20;
+const RUXC_HTTP_RET_INVALID_INPUT: libc::c_int = -21;
+const RUXC_HTTP_RET_PANIC: libc::c_int = -99;
+
 #[no_mangle]
 pub extern "C" fn ruxc_http_response_release(v_http_response: *mut RuxcHTTPResponse) {
-    unsafe {
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
         if v_http_response.is_null() {
             return;
         }
-        if (*v_http_response).resdata.is_null() {
+
+        let response = &mut *v_http_response;
+        if response.resdata.is_null() {
+            response.resdata_len = 0;
             return;
         }
-        let _ = std::ffi::CString::from_raw((*v_http_response).resdata);
-    };
+
+        if let Some(allocation_len) = usize::try_from(response.resdata_len)
+            .ok()
+            .and_then(|len| len.checked_add(1))
+        {
+            let allocation =
+                std::ptr::slice_from_raw_parts_mut(response.resdata.cast::<u8>(), allocation_len);
+            drop(Box::from_raw(allocation));
+        }
+        response.resdata = std::ptr::null_mut();
+        response.resdata_len = 0;
+    }));
 }
 
 #[derive(Debug)]
@@ -91,6 +110,7 @@ impl From<String> for StringError {
 #[derive(Debug)]
 struct Error {
     source: Box<dyn std::error::Error>,
+    retcode: libc::c_int,
 }
 
 impl std::error::Error for Error {}
@@ -105,6 +125,7 @@ impl From<StringError> for Error {
     fn from(source: StringError) -> Self {
         Error {
             source: source.into(),
+            retcode: RUXC_HTTP_RET_INVALID_INPUT,
         }
     }
 }
@@ -113,6 +134,7 @@ impl From<ureq::Error> for Error {
     fn from(source: ureq::Error) -> Self {
         Error {
             source: source.into(),
+            retcode: RUXC_HTTP_RET_ERROR,
         }
     }
 }
@@ -121,6 +143,7 @@ impl From<std::io::Error> for Error {
     fn from(source: std::io::Error) -> Self {
         Error {
             source: source.into(),
+            retcode: RUXC_HTTP_RET_ERROR,
         }
     }
 }
@@ -129,6 +152,7 @@ impl From<url::ParseError> for Error {
     fn from(source: url::ParseError) -> Self {
         Error {
             source: source.into(),
+            retcode: RUXC_HTTP_RET_INVALID_INPUT,
         }
     }
 }
@@ -197,8 +221,11 @@ fn ruxc_print_log(logtype: i32, debug: i32, level: i32, message: String) {
             println!("* ruxc [debug]:: {}", message);
         }
     } else if logtype == 1 {
-        let c_message = std::ffi::CString::new(message).unwrap();
-        let c_fmt = std::ffi::CStr::from_bytes_with_nul(b"%s\n\0").expect("format field failed");
+        let c_message = match std::ffi::CString::new(message.replace('\0', "\\0")) {
+            Ok(message) => message,
+            Err(_) => return,
+        };
+        let c_fmt = unsafe { std::ffi::CStr::from_bytes_with_nul_unchecked(b"%s\n\0") };
         unsafe {
             if level == 1 {
                 libc::syslog(libc::LOG_ERR, c_fmt.as_ptr(), c_message.as_ptr());
@@ -251,6 +278,28 @@ fn ruxc_http_response_storing(status: u16, final_attempt: bool) -> bool {
     final_attempt || (200..=299).contains(&status)
 }
 
+fn ruxc_http_response_store_body(
+    v_http_response: *mut RuxcHTTPResponse,
+    mut body: Vec<u8>,
+) -> Result<(), Error> {
+    let body_len = libc::c_int::try_from(body.len()).map_err(|_| Error {
+        source: StringError::from("HTTP response body is too large".to_owned()).into(),
+        retcode: RUXC_HTTP_RET_ERROR,
+    })?;
+
+    unsafe {
+        (*v_http_response).resdata = std::ptr::null_mut();
+        (*v_http_response).resdata_len = body_len;
+        if body_len > 0 {
+            body.push(0);
+            let body = body.into_boxed_slice();
+            (*v_http_response).resdata = Box::into_raw(body).cast::<u8>().cast::<libc::c_char>();
+        }
+    }
+
+    Ok(())
+}
+
 fn ruxc_http_request_perform(
     agent: &ureq::Agent,
     v_http_request: *const RuxcHTTPRequest,
@@ -261,14 +310,17 @@ fn ruxc_http_request_perform(
     let debug = unsafe { (*v_http_request).debug as i32 };
     let logtype = unsafe { (*v_http_request).logtype as i32 };
 
-    let c_met_str = unsafe {
+    let r_met_str = unsafe {
         if !(*v_http_request).method.is_null() {
             std::ffi::CStr::from_ptr((*v_http_request).method)
+                .to_str()
+                .map_err(|err| {
+                    StringError::from(format!("HTTP method is not valid UTF-8: {}", err))
+                })?
         } else {
-            std::ffi::CStr::from_bytes_with_nul(b"GET\0").unwrap()
+            "GET"
         }
     };
-    let r_met_str = c_met_str.to_str().unwrap();
 
     let r_url_str = unsafe {
         ruxc_utf8_buffer_from_raw_parts((*v_http_request).url, (*v_http_request).url_len, "URL")?
@@ -408,23 +460,23 @@ fn ruxc_http_request_perform(
     if ruxc_http_response_storing(res.status(), final_attempt) {
         // Store successful responses immediately and the last response after
         // all retry attempts have been exhausted.
-        let body: String = res.into_string()?;
+        let mut body = Vec::new();
+        res.into_reader().read_to_end(&mut body)?;
 
         if debug != 0 {
             ruxc_print_log(
                 logtype,
                 debug,
                 3,
-                format!("* ruxc:: HTTP response body: {}", body),
+                format!(
+                    "* ruxc:: HTTP response body: {}",
+                    String::from_utf8_lossy(&body)
+                ),
             );
         }
 
+        ruxc_http_response_store_body(v_http_response, body)?;
         unsafe {
-            (*v_http_response).resdata_len = body.chars().count() as i32;
-            if (*v_http_response).resdata_len > 0 {
-                let c_str_song = std::ffi::CString::new(body).unwrap();
-                (*v_http_response).resdata = c_str_song.into_raw();
-            }
             (*v_http_response).retcode = 0;
         }
     }
@@ -439,9 +491,9 @@ fn ruxc_http_request_perform_once(
     v_method: HTTPMethodType,
 ) -> Result<(), Error> {
     unsafe {
-        (*v_http_response).retcode = -1;
+        (*v_http_response).retcode = RUXC_HTTP_RET_ERROR;
         if (*v_http_request).url.is_null() {
-            (*v_http_response).retcode = -20;
+            (*v_http_response).retcode = RUXC_HTTP_RET_INVALID_ARGUMENT;
             return Ok(());
         }
     };
@@ -471,8 +523,7 @@ fn ruxc_http_request_perform_once(
             v_http_response,
             &v_method,
             retry <= 0,
-        )
-        .ok();
+        )?;
         if retry <= 0 {
             break;
         }
@@ -493,9 +544,9 @@ fn ruxc_http_request_perform_reuse(
     v_method: HTTPMethodType,
 ) -> Result<(), Error> {
     unsafe {
-        (*v_http_response).retcode = -1;
+        (*v_http_response).retcode = RUXC_HTTP_RET_ERROR;
         if (*v_http_request).url.is_null() {
-            (*v_http_response).retcode = -20;
+            (*v_http_response).retcode = RUXC_HTTP_RET_INVALID_ARGUMENT;
             return Ok(());
         }
     };
@@ -530,25 +581,27 @@ fn ruxc_http_request_perform_reuse(
 
     let mut retry = unsafe { (*v_http_request).retry as i32 };
 
-    HTTPAGENT.with(|agent| loop {
-        ruxc_http_request_perform(
-            &(*agent.borrow()),
-            v_http_request,
-            v_http_response,
-            &v_method,
-            retry <= 0,
-        )
-        .ok();
-        if retry <= 0 {
-            break;
-        }
-        unsafe {
-            if (*v_http_response).rescode >= 200 && (*v_http_response).rescode <= 299 {
+    HTTPAGENT.with(|agent| -> Result<(), Error> {
+        loop {
+            ruxc_http_request_perform(
+                &(*agent.borrow()),
+                v_http_request,
+                v_http_response,
+                &v_method,
+                retry <= 0,
+            )?;
+            if retry <= 0 {
                 break;
             }
+            unsafe {
+                if (*v_http_response).rescode >= 200 && (*v_http_response).rescode <= 299 {
+                    break;
+                }
+            }
+            retry -= 1;
         }
-        retry -= 1;
-    });
+        Ok(())
+    })?;
 
     return Ok(());
 }
@@ -560,9 +613,9 @@ fn ruxc_http_request_perform_hashmap(
     v_method: HTTPMethodType,
 ) -> Result<(), Error> {
     unsafe {
-        (*v_http_response).retcode = -1;
+        (*v_http_response).retcode = RUXC_HTTP_RET_ERROR;
         if (*v_http_request).url.is_null() {
-            (*v_http_response).retcode = -20;
+            (*v_http_response).retcode = RUXC_HTTP_RET_INVALID_ARGUMENT;
             return Ok(());
         }
     };
@@ -588,7 +641,7 @@ fn ruxc_http_request_perform_hashmap(
         ruxc_print_log(logtype, debug, 3, format!("htable key [{}]", htkey));
     }
 
-    HTTPAGENTMAP.with(|item| {
+    HTTPAGENTMAP.with(|item| -> Result<(), Error> {
         let mut ht = item.borrow_mut();
         if !ht.contains_key(&htkey) {
             let htnewkey = String::clone(&htkey);
@@ -620,8 +673,7 @@ fn ruxc_http_request_perform_hashmap(
                     v_http_response,
                     &v_method,
                     retry <= 0,
-                )
-                .ok();
+                )?;
                 if retry <= 0 {
                     break;
                 }
@@ -633,9 +685,53 @@ fn ruxc_http_request_perform_hashmap(
                 retry -= 1;
             }
         }
-    });
+        Ok(())
+    })?;
 
     return Ok(());
+}
+
+fn ruxc_http_request_dispatch(
+    v_http_request: *const RuxcHTTPRequest,
+    v_http_response: *mut RuxcHTTPResponse,
+    v_method: HTTPMethodType,
+) -> Result<(), Error> {
+    let reuse = unsafe { (*v_http_request).reuse as i32 };
+    match reuse {
+        1 => ruxc_http_request_perform_reuse(v_http_request, v_http_response, v_method),
+        2 => ruxc_http_request_perform_hashmap(v_http_request, v_http_response, v_method),
+        _ => ruxc_http_request_perform_once(v_http_request, v_http_response, v_method),
+    }
+}
+
+fn ruxc_http_request_ffi(
+    v_http_request: *const RuxcHTTPRequest,
+    v_http_response: *mut RuxcHTTPResponse,
+    v_method: HTTPMethodType,
+) -> libc::c_int {
+    if v_http_response.is_null() {
+        return RUXC_HTTP_RET_INVALID_ARGUMENT;
+    }
+    if v_http_request.is_null() {
+        unsafe {
+            (*v_http_response).retcode = RUXC_HTTP_RET_INVALID_ARGUMENT;
+        }
+        return RUXC_HTTP_RET_INVALID_ARGUMENT;
+    }
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        ruxc_http_request_dispatch(v_http_request, v_http_response, v_method)
+    }));
+
+    let retcode = match result {
+        Ok(Ok(())) => unsafe { (*v_http_response).retcode },
+        Ok(Err(err)) => err.retcode,
+        Err(_) => RUXC_HTTP_RET_PANIC,
+    };
+    unsafe {
+        (*v_http_response).retcode = retcode;
+    }
+    retcode
 }
 
 // Perform HTTP/S GET request
@@ -644,28 +740,7 @@ pub extern "C" fn ruxc_http_get(
     v_http_request: *const RuxcHTTPRequest,
     v_http_response: *mut RuxcHTTPResponse,
 ) -> libc::c_int {
-    let reuse = unsafe { (*v_http_request).reuse as i32 };
-    match reuse {
-        1 => ruxc_http_request_perform_reuse(
-            v_http_request,
-            v_http_response,
-            HTTPMethodType::MethodGET,
-        )
-        .ok(),
-        2 => ruxc_http_request_perform_hashmap(
-            v_http_request,
-            v_http_response,
-            HTTPMethodType::MethodGET,
-        )
-        .ok(),
-        _ => ruxc_http_request_perform_once(
-            v_http_request,
-            v_http_response,
-            HTTPMethodType::MethodGET,
-        )
-        .ok(),
-    };
-    return unsafe { (*v_http_response).retcode };
+    ruxc_http_request_ffi(v_http_request, v_http_response, HTTPMethodType::MethodGET)
 }
 
 // Perform HTTP/S POST request
@@ -674,28 +749,7 @@ pub extern "C" fn ruxc_http_post(
     v_http_request: *const RuxcHTTPRequest,
     v_http_response: *mut RuxcHTTPResponse,
 ) -> libc::c_int {
-    let reuse = unsafe { (*v_http_request).reuse as i32 };
-    match reuse {
-        1 => ruxc_http_request_perform_reuse(
-            v_http_request,
-            v_http_response,
-            HTTPMethodType::MethodPOST,
-        )
-        .ok(),
-        2 => ruxc_http_request_perform_hashmap(
-            v_http_request,
-            v_http_response,
-            HTTPMethodType::MethodPOST,
-        )
-        .ok(),
-        _ => ruxc_http_request_perform_once(
-            v_http_request,
-            v_http_response,
-            HTTPMethodType::MethodPOST,
-        )
-        .ok(),
-    };
-    return unsafe { (*v_http_response).retcode };
+    ruxc_http_request_ffi(v_http_request, v_http_response, HTTPMethodType::MethodPOST)
 }
 
 // Perform HTTP/S DELETE request
@@ -704,28 +758,11 @@ pub extern "C" fn ruxc_http_delete(
     v_http_request: *const RuxcHTTPRequest,
     v_http_response: *mut RuxcHTTPResponse,
 ) -> libc::c_int {
-    let reuse = unsafe { (*v_http_request).reuse as i32 };
-    match reuse {
-        1 => ruxc_http_request_perform_reuse(
-            v_http_request,
-            v_http_response,
-            HTTPMethodType::MethodDELETE,
-        )
-        .ok(),
-        2 => ruxc_http_request_perform_hashmap(
-            v_http_request,
-            v_http_response,
-            HTTPMethodType::MethodDELETE,
-        )
-        .ok(),
-        _ => ruxc_http_request_perform_once(
-            v_http_request,
-            v_http_response,
-            HTTPMethodType::MethodDELETE,
-        )
-        .ok(),
-    };
-    return unsafe { (*v_http_response).retcode };
+    ruxc_http_request_ffi(
+        v_http_request,
+        v_http_response,
+        HTTPMethodType::MethodDELETE,
+    )
 }
 
 // Perform HTTP/S CUSTOM request
@@ -734,34 +771,20 @@ pub extern "C" fn ruxc_http_request(
     v_http_request: *const RuxcHTTPRequest,
     v_http_response: *mut RuxcHTTPResponse,
 ) -> libc::c_int {
-    let reuse = unsafe { (*v_http_request).reuse as i32 };
-    match reuse {
-        1 => ruxc_http_request_perform_reuse(
-            v_http_request,
-            v_http_response,
-            HTTPMethodType::MethodCUSTOM,
-        )
-        .ok(),
-        2 => ruxc_http_request_perform_hashmap(
-            v_http_request,
-            v_http_response,
-            HTTPMethodType::MethodCUSTOM,
-        )
-        .ok(),
-        _ => ruxc_http_request_perform_once(
-            v_http_request,
-            v_http_response,
-            HTTPMethodType::MethodCUSTOM,
-        )
-        .ok(),
-    };
-    return unsafe { (*v_http_response).retcode };
+    ruxc_http_request_ffi(
+        v_http_request,
+        v_http_response,
+        HTTPMethodType::MethodCUSTOM,
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        ruxc_buffer_from_raw_parts, ruxc_http_response_storing, ruxc_utf8_buffer_from_raw_parts,
+        ruxc_buffer_from_raw_parts, ruxc_http_request, ruxc_http_response_release,
+        ruxc_http_response_store_body, ruxc_http_response_storing, ruxc_utf8_buffer_from_raw_parts,
+        RuxcHTTPRequest, RuxcHTTPResponse, RUXC_HTTP_RET_INVALID_ARGUMENT,
+        RUXC_HTTP_RET_INVALID_INPUT, RUXC_HTTP_RET_PANIC,
     };
 
     #[test]
@@ -798,5 +821,74 @@ mod tests {
         assert!(
             unsafe { ruxc_buffer_from_raw_parts(std::ptr::null(), -1, "test buffer") }.is_err()
         );
+    }
+
+    #[test]
+    fn stores_and_releases_response_bodies_with_embedded_nuls() {
+        let mut response: RuxcHTTPResponse = unsafe { std::mem::zeroed() };
+        let body = b"a\0b".to_vec();
+
+        ruxc_http_response_store_body(&mut response, body.clone()).unwrap();
+
+        assert_eq!(response.resdata_len, body.len() as i32);
+        assert_eq!(
+            unsafe { std::slice::from_raw_parts(response.resdata.cast::<u8>(), body.len() + 1) },
+            b"a\0b\0"
+        );
+
+        ruxc_http_response_release(&mut response);
+        assert!(response.resdata.is_null());
+        assert_eq!(response.resdata_len, 0);
+    }
+
+    #[test]
+    fn exported_request_rejects_null_arguments() {
+        let mut response: RuxcHTTPResponse = unsafe { std::mem::zeroed() };
+
+        assert_eq!(
+            ruxc_http_request(std::ptr::null(), &mut response),
+            RUXC_HTTP_RET_INVALID_ARGUMENT
+        );
+        assert_eq!(response.retcode, RUXC_HTTP_RET_INVALID_ARGUMENT);
+        assert_eq!(
+            ruxc_http_request(std::ptr::null(), std::ptr::null_mut()),
+            RUXC_HTTP_RET_INVALID_ARGUMENT
+        );
+    }
+
+    #[test]
+    fn exported_request_rejects_non_utf8_methods_without_panicking() {
+        let method = [0xff_u8, 0];
+        let url = b"http://127.0.0.1/";
+        let mut request: RuxcHTTPRequest = unsafe { std::mem::zeroed() };
+        let mut response: RuxcHTTPResponse = unsafe { std::mem::zeroed() };
+        request.method = method.as_ptr().cast();
+        request.url = url.as_ptr().cast();
+        request.url_len = url.len() as i32;
+
+        assert_eq!(
+            ruxc_http_request(&request, &mut response),
+            RUXC_HTTP_RET_INVALID_INPUT
+        );
+        assert_eq!(response.retcode, RUXC_HTTP_RET_INVALID_INPUT);
+    }
+
+    #[test]
+    fn exported_request_contains_internal_panics() {
+        let url = b"http://127.0.0.1/";
+        let mut request: RuxcHTTPRequest = unsafe { std::mem::zeroed() };
+        let mut response: RuxcHTTPResponse = unsafe { std::mem::zeroed() };
+        request.url = url.as_ptr().cast();
+        request.url_len = url.len() as i32;
+        request.reuse = 2;
+
+        super::HTTPAGENTMAP.with(|agents| {
+            let _borrow = agents.borrow_mut();
+            assert_eq!(
+                super::ruxc_http_get(&request, &mut response),
+                RUXC_HTTP_RET_PANIC
+            );
+        });
+        assert_eq!(response.retcode, RUXC_HTTP_RET_PANIC);
     }
 }
