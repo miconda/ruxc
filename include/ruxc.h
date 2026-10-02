@@ -7,6 +7,13 @@
 /* library version id - 3 digits for each x.y.z */
 #define LIBRUXC_VERSION_ID 1001000
 
+/* HTTP request return codes */
+#define RUXC_HTTP_RET_OK 0
+#define RUXC_HTTP_RET_ERROR -1
+#define RUXC_HTTP_RET_INVALID_ARGUMENT -20
+#define RUXC_HTTP_RET_INVALID_INPUT -21
+#define RUXC_HTTP_RET_PANIC -99
+
 typedef struct RuxcHTTPRequest {
     char* method;        /* Method */
     char* url;           /* HTTP/S URL */
