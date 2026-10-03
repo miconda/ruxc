@@ -145,7 +145,7 @@ int main(int argc, char *argv[])
 				v_http_request.data_len = strlen(v_http_request.data);
 			}
 			gettimeofday(&tvb, NULL);
-			ruxc_http_post(&v_http_request, &v_http_response);
+			ruxc_http_request(&v_http_request, &v_http_response);
 			gettimeofday(&tve, NULL);
 		} else if(post==1) {
 			v_http_request.data = postdata;
