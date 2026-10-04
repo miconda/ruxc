@@ -64,6 +64,13 @@ const RUXC_HTTP_RET_INVALID_ARGUMENT: libc::c_int = -20;
 const RUXC_HTTP_RET_INVALID_INPUT: libc::c_int = -21;
 const RUXC_HTTP_RET_PANIC: libc::c_int = -99;
 
+unsafe fn ruxc_http_response_init(v_http_response: *mut RuxcHTTPResponse) {
+    (*v_http_response).retcode = RUXC_HTTP_RET_ERROR;
+    (*v_http_response).rescode = 0;
+    (*v_http_response).resdata = std::ptr::null_mut();
+    (*v_http_response).resdata_len = 0;
+}
+
 #[no_mangle]
 pub extern "C" fn ruxc_http_response_release(v_http_response: *mut RuxcHTTPResponse) {
     let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
@@ -732,6 +739,9 @@ fn ruxc_http_request_ffi(
     if v_http_response.is_null() {
         return RUXC_HTTP_RET_INVALID_ARGUMENT;
     }
+    unsafe {
+        ruxc_http_response_init(v_http_response);
+    }
     if v_http_request.is_null() {
         unsafe {
             (*v_http_response).retcode = RUXC_HTTP_RET_INVALID_ARGUMENT;
@@ -859,17 +869,29 @@ mod tests {
         ruxc_http_response_release(&mut response);
         assert!(response.resdata.is_null());
         assert_eq!(response.resdata_len, 0);
+
+        ruxc_http_response_release(&mut response);
+        assert!(response.resdata.is_null());
+        assert_eq!(response.resdata_len, 0);
     }
 
     #[test]
     fn exported_request_rejects_null_arguments() {
-        let mut response: RuxcHTTPResponse = unsafe { std::mem::zeroed() };
+        let mut response = RuxcHTTPResponse {
+            retcode: 123,
+            rescode: 456,
+            resdata: std::ptr::NonNull::<libc::c_char>::dangling().as_ptr(),
+            resdata_len: 789,
+        };
 
         assert_eq!(
             ruxc_http_request(std::ptr::null(), &mut response),
             RUXC_HTTP_RET_INVALID_ARGUMENT
         );
         assert_eq!(response.retcode, RUXC_HTTP_RET_INVALID_ARGUMENT);
+        assert_eq!(response.rescode, 0);
+        assert!(response.resdata.is_null());
+        assert_eq!(response.resdata_len, 0);
         assert_eq!(
             ruxc_http_request(std::ptr::null(), std::ptr::null_mut()),
             RUXC_HTTP_RET_INVALID_ARGUMENT
