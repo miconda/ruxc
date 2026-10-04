@@ -39,7 +39,7 @@ typedef struct RuxcHTTPResponse {
     int retcode;         /* return code of processing the request */
     int rescode;         /* HTTP response code */
     char* resdata;       /* HTTP response data (body) */
-    int resdata_len;     /* Length of response data */
+    int resdata_len;     /* Length of response data in bytes */
 } RuxcHTTPResponse;
 
 /* Release resdata before reusing a response that contains a previous result.
