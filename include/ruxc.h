@@ -42,6 +42,9 @@ typedef struct RuxcHTTPResponse {
     int resdata_len;     /* Length of response data */
 } RuxcHTTPResponse;
 
+/* Release resdata before reusing a response that contains a previous result.
+ * Request functions initialize all response fields before performing a request. */
+
 /**
  * Perform a HTTP/S GET request
  */
