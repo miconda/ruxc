@@ -14,13 +14,10 @@ use std::io::Read;
 use ureq;
 use url;
 
-thread_local!(static HTTPAGENT: std::cell::RefCell<ureq::Agent> = std::cell::RefCell::new(ureq::Agent::new()));
-
 thread_local! {
+    static HTTPAGENT: std::cell::RefCell<Option<ureq::Agent>> = std::cell::RefCell::new(None);
     static HTTPAGENTMAP: std::cell::RefCell< HashMap<String, ureq::Agent> > = HashMap::new().into();
 }
-
-static mut HTTPAGENTREADY: u32 = 0;
 
 #[derive(PartialEq)]
 enum HTTPMethodType {
@@ -564,7 +561,19 @@ fn ruxc_http_request_perform_once(
     return Ok(());
 }
 
-// Perform HTTP/S request reusing one global agent every time
+fn ruxc_http_agent_initialize(v_http_request: *const RuxcHTTPRequest) -> Result<bool, Error> {
+    HTTPAGENT.with(|agent| {
+        if agent.borrow().is_some() {
+            return Ok(false);
+        }
+
+        let builder = ruxc_http_agent_builder(v_http_request)?;
+        *agent.borrow_mut() = Some(builder.build());
+        Ok(true)
+    })
+}
+
+// Perform HTTP/S request reusing one thread-local agent every time
 fn ruxc_http_request_perform_reuse(
     v_http_request: *const RuxcHTTPRequest,
     v_http_response: *mut RuxcHTTPResponse,
@@ -581,9 +590,7 @@ fn ruxc_http_request_perform_reuse(
     let debug = unsafe { (*v_http_request).debug as i32 };
     let logtype = unsafe { (*v_http_request).logtype as i32 };
 
-    let haready = unsafe { HTTPAGENTREADY as u32 };
-
-    if haready == 0 {
+    if ruxc_http_agent_initialize(v_http_request)? {
         if debug != 0 {
             ruxc_print_log(
                 logtype,
@@ -592,26 +599,20 @@ fn ruxc_http_request_perform_reuse(
                 format!("initializing http agent - reuse on"),
             );
         }
-
-        let builder = ruxc_http_agent_builder(v_http_request)?;
-
-        HTTPAGENT.with(|agent| {
-            *agent.borrow_mut() = builder.build();
-        });
-        if debug != 0 {
-            ruxc_print_log(logtype, debug, 3, format!("saving ready state - reuse on"));
-        }
-        unsafe {
-            HTTPAGENTREADY = 1;
-        };
     }
 
     let mut retry = unsafe { (*v_http_request).retry as i32 };
 
     HTTPAGENT.with(|agent| -> Result<(), Error> {
+        let agent = agent.borrow();
+        let agent = agent.as_ref().ok_or_else(|| {
+            Error::from(StringError::from(
+                "thread-local HTTP agent was not initialized".to_owned(),
+            ))
+        })?;
         loop {
             ruxc_http_request_perform(
-                &(*agent.borrow()),
+                agent,
                 v_http_request,
                 v_http_response,
                 &v_method,
@@ -811,10 +812,11 @@ pub extern "C" fn ruxc_http_request(
 #[cfg(test)]
 mod tests {
     use super::{
-        ruxc_buffer_from_raw_parts, ruxc_http_request, ruxc_http_response_release,
-        ruxc_http_response_store_body, ruxc_http_response_storing, ruxc_timeout_from_millis,
-        ruxc_utf8_buffer_from_raw_parts, RuxcHTTPRequest, RuxcHTTPResponse,
-        RUXC_HTTP_RET_INVALID_ARGUMENT, RUXC_HTTP_RET_INVALID_INPUT, RUXC_HTTP_RET_PANIC,
+        ruxc_buffer_from_raw_parts, ruxc_http_agent_initialize, ruxc_http_request,
+        ruxc_http_response_release, ruxc_http_response_store_body, ruxc_http_response_storing,
+        ruxc_timeout_from_millis, ruxc_utf8_buffer_from_raw_parts, RuxcHTTPRequest,
+        RuxcHTTPResponse, RUXC_HTTP_RET_INVALID_ARGUMENT, RUXC_HTTP_RET_INVALID_INPUT,
+        RUXC_HTTP_RET_PANIC,
     };
 
     #[test]
@@ -953,6 +955,37 @@ mod tests {
             RUXC_HTTP_RET_INVALID_INPUT
         );
         assert_eq!(response.retcode, RUXC_HTTP_RET_INVALID_INPUT);
+    }
+
+    #[test]
+    fn reuse_agents_are_initialized_independently_per_thread() {
+        super::HTTPAGENT.with(|agent| {
+            *agent.borrow_mut() = None;
+        });
+
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(8));
+        let threads: Vec<_> = (1..=8)
+            .map(|timeout| {
+                let barrier = barrier.clone();
+                std::thread::spawn(move || {
+                    super::HTTPAGENT.with(|agent| assert!(agent.borrow().is_none()));
+                    barrier.wait();
+
+                    let mut request: RuxcHTTPRequest = unsafe { std::mem::zeroed() };
+                    request.tlsmode = 1;
+                    request.timeout = timeout;
+
+                    assert!(ruxc_http_agent_initialize(&request).unwrap());
+                    assert!(!ruxc_http_agent_initialize(&request).unwrap());
+                    super::HTTPAGENT.with(|agent| assert!(agent.borrow().is_some()));
+                })
+            })
+            .collect();
+
+        for thread in threads {
+            thread.join().unwrap();
+        }
+        super::HTTPAGENT.with(|agent| assert!(agent.borrow().is_none()));
     }
 
     #[test]
