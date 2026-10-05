@@ -876,6 +876,23 @@ mod tests {
     }
 
     #[test]
+    fn response_length_counts_utf8_bytes() {
+        let mut response: RuxcHTTPResponse = unsafe { std::mem::zeroed() };
+        let body = "Grüße".as_bytes().to_vec();
+
+        ruxc_http_response_store_body(&mut response, body.clone()).unwrap();
+
+        assert_eq!(response.resdata_len, body.len() as i32);
+        assert_ne!(body.len(), "Grüße".chars().count());
+        assert_eq!(
+            unsafe { std::slice::from_raw_parts(response.resdata.cast::<u8>(), body.len()) },
+            body
+        );
+
+        ruxc_http_response_release(&mut response);
+    }
+
+    #[test]
     fn exported_request_rejects_null_arguments() {
         let mut response = RuxcHTTPResponse {
             retcode: 123,
