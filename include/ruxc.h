@@ -30,7 +30,9 @@ typedef struct RuxcHTTPRequest {
     int flags;           /* Internal flags - not in use yet */
     int debug;           /* Debug mode: 0 - no debug; 1 - error; 2 - info; 3 - debug */
     int reuse;           /* Reuse connection mode: 0 - do not reuse;
-                          *   1 - single connection; 2 - connections hashmap */
+                          *   1 - one agent per thread; 2 - per-thread agents
+                          *   mapped by base URL. The first request for an agent
+                          *   determines its TLS and timeout settings. */
     int retry;           /* How many tries to attempt if not getting 200ok */
     int logtype;         /* Log type: 0 - stdout; 1 - syslog */
 } RuxcHTTPRequest;
