@@ -2,6 +2,8 @@
 #ifndef __LIBRUXC_H__
 #define __LIBRUXC_H__
 
+#include <stddef.h>
+
 /* library version string - x.y.z */
 #define LIBRUXC_VERSION_STR "1.1.0"
 /* library version id - 3 digits for each x.y.z */
@@ -12,7 +14,11 @@
 #define RUXC_HTTP_RET_ERROR -1
 #define RUXC_HTTP_RET_INVALID_ARGUMENT -20
 #define RUXC_HTTP_RET_INVALID_INPUT -21
+#define RUXC_HTTP_RET_RESPONSE_TOO_LARGE -22
 #define RUXC_HTTP_RET_PANIC -99
+
+/* Default maximum response body size: 16 MiB. */
+#define RUXC_HTTP_DEFAULT_MAX_RESPONSE_SIZE (16U * 1024U * 1024U)
 
 typedef struct RuxcHTTPRequest {
     char* method;        /* Method */
@@ -43,6 +49,18 @@ typedef struct RuxcHTTPResponse {
     char* resdata;       /* HTTP response data (body) */
     int resdata_len;     /* Length of response data in bytes */
 } RuxcHTTPResponse;
+
+/**
+ * Set the process-wide maximum response body size in bytes.
+ * The value must be between 1 and INT_MAX. The new limit applies to
+ * subsequent response reads and is safe to update from any thread.
+ */
+extern int ruxc_http_set_max_response_size(size_t max_response_size);
+
+/**
+ * Get the current process-wide maximum response body size in bytes.
+ */
+extern size_t ruxc_http_get_max_response_size(void);
 
 /* Release resdata before reusing a response that contains a previous result.
  * Request functions initialize all response fields before performing a request. */
