@@ -63,15 +63,20 @@ docker run --rm \
 ### HTTP Client Functions
 
 The library offers HTTP client functions to perform blocking GET or POST requests,
-with option to reuse connections per process. The functions are built on `ureq` Rust
+with option to reuse connections per calling thread. The functions are built on `ureq` Rust
 library (https://github.com/algesten/ureq/), which has also support for HTTPS
 based on `rustls` (https://github.com/ctz/rustls).
 
 They are a simple alternative to the versatile cURL library, not depending
 on `libssl` or `gnutls` either. The functions are useful when willing to build
 a simple HTTP client in C, specially for multi-process applications when one
-wants to re-use the HTTP/S connection per process and do not care about
+wants to re-use the HTTP/S connection independently in each process or thread
+and does not care about
 multi-threading constraints of `libssl` or `libcurl`.
+
+With reuse mode `1`, each thread initializes its own cached HTTP agent. The
+first request on that thread determines the cached agent's TLS and timeout
+settings. Reuse mode `2` maintains a separate per-thread agent for each base URL.
 
 It supports setting custom headers for GET and POST requests as well as body data
 for POST requests. There is no user/password authentication support. An option
