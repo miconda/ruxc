@@ -11,6 +11,7 @@ use rustls;
 use std;
 use std::collections::HashMap;
 use std::io::Read;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use ureq;
 use url;
 
@@ -59,7 +60,26 @@ pub struct RuxcHTTPResponse {
 const RUXC_HTTP_RET_ERROR: libc::c_int = -1;
 const RUXC_HTTP_RET_INVALID_ARGUMENT: libc::c_int = -20;
 const RUXC_HTTP_RET_INVALID_INPUT: libc::c_int = -21;
+const RUXC_HTTP_RET_RESPONSE_TOO_LARGE: libc::c_int = -22;
 const RUXC_HTTP_RET_PANIC: libc::c_int = -99;
+const RUXC_HTTP_DEFAULT_MAX_RESPONSE_SIZE: usize = 16 * 1024 * 1024;
+
+static HTTP_MAX_RESPONSE_SIZE: AtomicUsize = AtomicUsize::new(RUXC_HTTP_DEFAULT_MAX_RESPONSE_SIZE);
+
+#[no_mangle]
+pub extern "C" fn ruxc_http_set_max_response_size(max_response_size: libc::size_t) -> libc::c_int {
+    if max_response_size == 0 || max_response_size > libc::c_int::MAX as usize {
+        return RUXC_HTTP_RET_INVALID_ARGUMENT;
+    }
+
+    HTTP_MAX_RESPONSE_SIZE.store(max_response_size, Ordering::SeqCst);
+    0
+}
+
+#[no_mangle]
+pub extern "C" fn ruxc_http_get_max_response_size() -> libc::size_t {
+    HTTP_MAX_RESPONSE_SIZE.load(Ordering::SeqCst)
+}
 
 unsafe fn ruxc_http_response_init(v_http_response: *mut RuxcHTTPResponse) {
     (*v_http_response).retcode = RUXC_HTTP_RET_ERROR;
@@ -324,6 +344,28 @@ fn ruxc_http_response_store_body(
     Ok(())
 }
 
+fn ruxc_http_response_read_body<R: Read>(reader: R, max_size: usize) -> Result<Vec<u8>, Error> {
+    let read_limit = max_size.checked_add(1).ok_or_else(|| Error {
+        source: StringError::from("HTTP response size limit is too large".to_owned()).into(),
+        retcode: RUXC_HTTP_RET_INVALID_ARGUMENT,
+    })?;
+    let mut body = Vec::new();
+    reader.take(read_limit as u64).read_to_end(&mut body)?;
+
+    if body.len() > max_size {
+        return Err(Error {
+            source: StringError::from(format!(
+                "HTTP response body exceeds the configured limit of {} bytes",
+                max_size
+            ))
+            .into(),
+            retcode: RUXC_HTTP_RET_RESPONSE_TOO_LARGE,
+        });
+    }
+
+    Ok(body)
+}
+
 fn ruxc_http_request_perform(
     agent: &ureq::Agent,
     v_http_request: *const RuxcHTTPRequest,
@@ -484,8 +526,8 @@ fn ruxc_http_request_perform(
     if ruxc_http_response_storing(res.status(), final_attempt) {
         // Store successful responses immediately and the last response after
         // all retry attempts have been exhausted.
-        let mut body = Vec::new();
-        res.into_reader().read_to_end(&mut body)?;
+        let max_response_size = HTTP_MAX_RESPONSE_SIZE.load(Ordering::SeqCst);
+        let body = ruxc_http_response_read_body(res.into_reader(), max_response_size)?;
 
         if debug != 0 {
             ruxc_print_log(
@@ -813,10 +855,10 @@ pub extern "C" fn ruxc_http_request(
 mod tests {
     use super::{
         ruxc_buffer_from_raw_parts, ruxc_http_agent_initialize, ruxc_http_request,
-        ruxc_http_response_release, ruxc_http_response_store_body, ruxc_http_response_storing,
-        ruxc_timeout_from_millis, ruxc_utf8_buffer_from_raw_parts, RuxcHTTPRequest,
-        RuxcHTTPResponse, RUXC_HTTP_RET_INVALID_ARGUMENT, RUXC_HTTP_RET_INVALID_INPUT,
-        RUXC_HTTP_RET_PANIC,
+        ruxc_http_response_read_body, ruxc_http_response_release, ruxc_http_response_store_body,
+        ruxc_http_response_storing, ruxc_timeout_from_millis, ruxc_utf8_buffer_from_raw_parts,
+        RuxcHTTPRequest, RuxcHTTPResponse, RUXC_HTTP_RET_INVALID_ARGUMENT,
+        RUXC_HTTP_RET_INVALID_INPUT, RUXC_HTTP_RET_PANIC, RUXC_HTTP_RET_RESPONSE_TOO_LARGE,
     };
 
     #[test]
@@ -892,6 +934,28 @@ mod tests {
         );
 
         ruxc_http_response_release(&mut response);
+    }
+
+    #[test]
+    fn response_body_reader_enforces_the_configured_limit() {
+        let exact_limit = b"abcd";
+        assert_eq!(
+            ruxc_http_response_read_body(std::io::Cursor::new(exact_limit), exact_limit.len())
+                .unwrap(),
+            exact_limit
+        );
+
+        let err = ruxc_http_response_read_body(std::io::Cursor::new(b"abcde"), 4).unwrap_err();
+        assert_eq!(err.retcode, RUXC_HTTP_RET_RESPONSE_TOO_LARGE);
+    }
+
+    #[test]
+    fn response_body_reader_preserves_binary_data() {
+        let body = b"a\0b\xff";
+        assert_eq!(
+            ruxc_http_response_read_body(std::io::Cursor::new(body), body.len()).unwrap(),
+            body
+        );
     }
 
     #[test]
