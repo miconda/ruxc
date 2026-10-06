@@ -83,6 +83,20 @@ for POST requests. There is no user/password authentication support. An option
 can be set to accept only trusted TLS certificates for HTTPS connections or any
 certificate.
 
+Response bodies are limited to 16 MiB by default to prevent an untrusted server
+from exhausting process memory. The process-wide limit can be changed before
+sending requests:
+
+```c
+if(ruxc_http_set_max_response_size(4U * 1024U * 1024U) != RUXC_HTTP_RET_OK) {
+	fprintf(stderr, "invalid response size limit\n");
+}
+```
+
+If a response exceeds the limit, the request returns
+`RUXC_HTTP_RET_RESPONSE_TOO_LARGE`, keeps `resdata` empty, and preserves the HTTP
+status in `rescode` when one was received.
+
 For usage example, see also `examples/httpcli.c` or the `ruxc` module of Kamailio
 project (https://github.com/kamailio/kamailio/tree/master/src/modules/ruxc).
 
