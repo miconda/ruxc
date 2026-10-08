@@ -7,16 +7,12 @@
 
 extern crate libc;
 
-use rustls;
-use std;
 use std::collections::HashMap;
 use std::io::Read;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use ureq;
-use url;
 
 thread_local! {
-    static HTTPAGENT: std::cell::RefCell<Option<ureq::Agent>> = std::cell::RefCell::new(None);
+    static HTTPAGENT: std::cell::RefCell<Option<ureq::Agent>> = const { std::cell::RefCell::new(None) };
     static HTTPAGENTMAP: std::cell::RefCell< HashMap<String, ureq::Agent> > = HashMap::new().into();
 }
 
@@ -89,7 +85,13 @@ unsafe fn ruxc_http_response_init(v_http_response: *mut RuxcHTTPResponse) {
 }
 
 #[no_mangle]
-pub extern "C" fn ruxc_http_response_release(v_http_response: *mut RuxcHTTPResponse) {
+/// Release a response body allocated by ruxc.
+///
+/// # Safety
+///
+/// `v_http_response` must be null or point to a valid, writable `RuxcHTTPResponse`.
+/// Any non-null `resdata` must have been returned by ruxc and not already released.
+pub unsafe extern "C" fn ruxc_http_response_release(v_http_response: *mut RuxcHTTPResponse) {
     let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
         if v_http_response.is_null() {
             return;
@@ -187,15 +189,14 @@ unsafe fn ruxc_buffer_from_raw_parts<'a>(
     field: &str,
 ) -> Result<&'a [u8], Error> {
     if len < 0 {
-        return Err(StringError::from(format!("{} length must not be negative", field)).into());
+        return Err(StringError::from(format!("{field} length must not be negative")).into());
     }
     if len == 0 {
         return Ok(&[]);
     }
     if ptr.is_null() {
         return Err(StringError::from(format!(
-            "{} pointer is null while its length is positive",
-            field
+            "{field} pointer is null while its length is positive"
         ))
         .into());
     }
@@ -210,23 +211,7 @@ unsafe fn ruxc_utf8_buffer_from_raw_parts<'a>(
 ) -> Result<&'a str, Error> {
     let bytes = ruxc_buffer_from_raw_parts(ptr, len, field)?;
     std::str::from_utf8(bytes)
-        .map_err(|err| StringError::from(format!("{} is not valid UTF-8: {}", field, err)).into())
-}
-
-struct TLSAcceptAllCerts {}
-
-impl rustls::client::ServerCertVerifier for TLSAcceptAllCerts {
-    fn verify_server_cert(
-        &self,
-        _end_entity: &rustls::Certificate,
-        _intermediates: &[rustls::Certificate],
-        _server_name: &rustls::ServerName,
-        _scts: &mut dyn Iterator<Item = &[u8]>,
-        _ocsp: &[u8],
-        _now: std::time::SystemTime,
-    ) -> Result<rustls::client::ServerCertVerified, rustls::Error> {
-        Ok(rustls::client::ServerCertVerified::assertion())
-    }
+        .map_err(|err| StringError::from(format!("{field} is not valid UTF-8: {err}")).into())
 }
 
 // logtype: 0 - stdout; 1 - syslog
@@ -238,18 +223,18 @@ fn ruxc_print_log(logtype: i32, debug: i32, level: i32, message: String) {
     }
     if logtype == 0 {
         if level == 1 {
-            println!("* ruxc [error]:: {}", message);
+            println!("* ruxc [error]:: {message}");
         } else if level == 2 {
-            println!("* ruxc [info]:: {}", message);
+            println!("* ruxc [info]:: {message}");
         } else if level == 3 {
-            println!("* ruxc [debug]:: {}", message);
+            println!("* ruxc [debug]:: {message}");
         }
     } else if logtype == 1 {
         let c_message = match std::ffi::CString::new(message.replace('\0', "\\0")) {
             Ok(message) => message,
             Err(_) => return,
         };
-        let c_fmt = unsafe { std::ffi::CStr::from_bytes_with_nul_unchecked(b"%s\n\0") };
+        let c_fmt = c"%s\n";
         unsafe {
             if level == 1 {
                 libc::syslog(libc::LOG_ERR, c_fmt.as_ptr(), c_message.as_ptr());
@@ -267,7 +252,7 @@ fn ruxc_timeout_from_millis(
     field: &str,
 ) -> Result<Option<std::time::Duration>, Error> {
     if value < 0 {
-        return Err(StringError::from(format!("{} must not be negative", field)).into());
+        return Err(StringError::from(format!("{field} must not be negative")).into());
     }
     if value == 0 {
         return Ok(None);
@@ -276,10 +261,8 @@ fn ruxc_timeout_from_millis(
     Ok(Some(std::time::Duration::from_millis(value as u64)))
 }
 
-fn ruxc_http_agent_builder(
-    v_http_request: *const RuxcHTTPRequest,
-) -> Result<ureq::AgentBuilder, Error> {
-    let v_tlsmode = unsafe { (*v_http_request).tlsmode as i32 };
+fn ruxc_http_agent_builder(v_http_request: *const RuxcHTTPRequest) -> Result<ureq::Agent, Error> {
+    let v_tlsmode = unsafe { (*v_http_request).tlsmode };
     let v_timeout_connect =
         unsafe { ruxc_timeout_from_millis((*v_http_request).timeout_connect, "connect timeout")? };
     let v_timeout_read =
@@ -289,33 +272,26 @@ fn ruxc_http_agent_builder(
     let v_timeout =
         unsafe { ruxc_timeout_from_millis((*v_http_request).timeout, "overall timeout")? };
 
-    let mut builder = ureq::builder();
-
-    if let Some(timeout) = v_timeout_connect {
-        builder = builder.timeout_connect(timeout)
-    }
-    if let Some(timeout) = v_timeout_read {
-        builder = builder.timeout_read(timeout)
-    }
-    if let Some(timeout) = v_timeout_write {
-        builder = builder.timeout_write(timeout)
-    }
-    if let Some(timeout) = v_timeout {
-        builder = builder.timeout(timeout);
-    }
+    let mut builder = ureq::Agent::config_builder()
+        .allow_non_standard_methods(true)
+        .http_status_as_error(false)
+        .max_redirects(5)
+        .proxy(None)
+        .timeout_connect(v_timeout_connect)
+        .timeout_recv_response(v_timeout_read)
+        .timeout_recv_body(v_timeout_read)
+        .timeout_send_request(v_timeout_write)
+        .timeout_send_body(v_timeout_write)
+        .timeout_global(v_timeout);
 
     if v_tlsmode == 0 {
-        let mut client_config = rustls::ClientConfig::builder()
-            .with_safe_defaults()
-            .with_root_certificates(rustls::RootCertStore::empty())
-            .with_no_client_auth();
-        client_config
-            .dangerous()
-            .set_certificate_verifier(std::sync::Arc::new(TLSAcceptAllCerts {}));
-        builder = builder.tls_config(std::sync::Arc::new(client_config));
+        let tls_config = ureq::tls::TlsConfig::builder()
+            .disable_verification(true)
+            .build();
+        builder = builder.tls_config(tls_config);
     }
 
-    Ok(builder)
+    Ok(ureq::Agent::new_with_config(builder.build()))
 }
 
 fn ruxc_http_response_storing(status: u16, final_attempt: bool) -> bool {
@@ -355,8 +331,7 @@ fn ruxc_http_response_read_body<R: Read>(reader: R, max_size: usize) -> Result<V
     if body.len() > max_size {
         return Err(Error {
             source: StringError::from(format!(
-                "HTTP response body exceeds the configured limit of {} bytes",
-                max_size
+                "HTTP response body exceeds the configured limit of {max_size} bytes"
             ))
             .into(),
             retcode: RUXC_HTTP_RET_RESPONSE_TOO_LARGE,
@@ -373,15 +348,15 @@ fn ruxc_http_request_perform(
     v_method: &HTTPMethodType,
     final_attempt: bool,
 ) -> Result<(), Error> {
-    let debug = unsafe { (*v_http_request).debug as i32 };
-    let logtype = unsafe { (*v_http_request).logtype as i32 };
+    let debug = unsafe { (*v_http_request).debug };
+    let logtype = unsafe { (*v_http_request).logtype };
 
     let r_met_str = unsafe {
         if !(*v_http_request).method.is_null() {
             std::ffi::CStr::from_ptr((*v_http_request).method)
                 .to_str()
                 .map_err(|err| {
-                    StringError::from(format!("HTTP method is not valid UTF-8: {}", err))
+                    StringError::from(format!("HTTP method is not valid UTF-8: {err}"))
                 })?
         } else {
             "GET"
@@ -392,19 +367,17 @@ fn ruxc_http_request_perform(
         ruxc_utf8_buffer_from_raw_parts((*v_http_request).url, (*v_http_request).url_len, "URL")?
     };
 
-    let mut req: ureq::Request;
-
-    match *v_method {
+    let method = match *v_method {
         HTTPMethodType::MethodPOST => {
             if debug != 0 {
                 ruxc_print_log(
                     logtype,
                     debug,
                     2,
-                    format!("doing HTTP POST - url: {}", r_url_str),
+                    format!("doing HTTP POST - url: {r_url_str}"),
                 );
             }
-            req = agent.post(r_url_str);
+            "POST"
         }
         HTTPMethodType::MethodDELETE => {
             if debug != 0 {
@@ -412,10 +385,10 @@ fn ruxc_http_request_perform(
                     logtype,
                     debug,
                     2,
-                    format!("doing HTTP DELETE - url: {}", r_url_str),
+                    format!("doing HTTP DELETE - url: {r_url_str}"),
                 );
             }
-            req = agent.delete(r_url_str);
+            "DELETE"
         }
         HTTPMethodType::MethodCUSTOM => {
             if debug != 0 {
@@ -423,10 +396,10 @@ fn ruxc_http_request_perform(
                     logtype,
                     debug,
                     2,
-                    format!("doing HTTP CUSTOM {} - url: {}", r_met_str, r_url_str),
+                    format!("doing HTTP CUSTOM {r_met_str} - url: {r_url_str}"),
                 );
             }
-            req = agent.request(r_met_str, r_url_str);
+            r_met_str
         }
         _ => {
             if debug != 0 {
@@ -434,12 +407,14 @@ fn ruxc_http_request_perform(
                     logtype,
                     debug,
                     2,
-                    format!("doing HTTP GET - url: {}", r_url_str),
+                    format!("doing HTTP GET - url: {r_url_str}"),
                 );
             }
-            req = agent.get(r_url_str);
+            "GET"
         }
-    }
+    };
+
+    let mut req = ureq::http::Request::builder().method(method).uri(r_url_str);
 
     unsafe {
         let r_headers_str = ruxc_utf8_buffer_from_raw_parts(
@@ -453,81 +428,92 @@ fn ruxc_http_request_perform(
                     logtype,
                     debug,
                     3,
-                    format!("adding headers: [[{}]]", r_headers_str),
+                    format!("adding headers: [[{r_headers_str}]]"),
                 );
             }
             for line in r_headers_str.lines() {
                 if let Some(cpos) = line.find(':').filter(|cpos| *cpos > 0) {
-                    req = req.set(&line[0..cpos], &line[(cpos + 1)..].trim());
+                    let name = ureq::http::header::HeaderName::from_bytes(&line.as_bytes()[..cpos])
+                        .map_err(|err| {
+                            StringError::from(format!("invalid HTTP header name: {err}"))
+                        })?;
+                    let value =
+                        ureq::http::header::HeaderValue::from_str(line[(cpos + 1)..].trim())
+                            .map_err(|err| {
+                                StringError::from(format!("invalid HTTP header value: {err}"))
+                            })?;
+                    let headers = req.headers_mut().ok_or_else(|| {
+                        Error::from(StringError::from(
+                            "failed to construct HTTP request headers".to_owned(),
+                        ))
+                    })?;
+                    headers.insert(name, value);
                 }
             }
         }
     };
 
-    let res: ureq::Response;
-    let exres: std::result::Result<ureq::Response, ureq::Error>;
-
-    if *v_method == HTTPMethodType::MethodPOST || *v_method == HTTPMethodType::MethodCUSTOM {
-        let r_body = unsafe {
-            ruxc_buffer_from_raw_parts(
-                (*v_http_request).data,
-                (*v_http_request).data_len,
-                "request body",
-            )?
+    let exres =
+        if *v_method == HTTPMethodType::MethodPOST || *v_method == HTTPMethodType::MethodCUSTOM {
+            let r_body = unsafe {
+                ruxc_buffer_from_raw_parts(
+                    (*v_http_request).data,
+                    (*v_http_request).data_len,
+                    "request body",
+                )?
+            };
+            if debug != 0 {
+                ruxc_print_log(
+                    logtype,
+                    debug,
+                    3,
+                    format!("post body: [[{}]]", String::from_utf8_lossy(r_body)),
+                );
+            }
+            agent.run(req.body(r_body).map_err(|err| {
+                Error::from(StringError::from(format!(
+                    "failed to construct HTTP request: {err}"
+                )))
+            })?)
+        } else {
+            if debug != 0 {
+                ruxc_print_log(logtype, debug, 3, "get request".to_string());
+            }
+            agent.run(req.body(()).map_err(|err| {
+                Error::from(StringError::from(format!(
+                    "failed to construct HTTP request: {err}"
+                )))
+            })?)
         };
-        if debug != 0 {
-            ruxc_print_log(
-                logtype,
-                debug,
-                3,
-                format!("post body: [[{}]]", String::from_utf8_lossy(r_body)),
-            );
-        }
-        exres = req.send_bytes(r_body);
-    } else {
-        if debug != 0 {
-            ruxc_print_log(logtype, debug, 3, format!("get request"));
-        }
-        exres = req.call();
-    }
-    match exres {
-        Ok(response) => {
-            res = response;
-        }
-        Err(ureq::Error::Status(_, response)) => {
-            res = response;
-        }
+    let res = match exres {
+        Ok(response) => response,
         Err(err) => {
             if debug != 0 {
-                ruxc_print_log(logtype, debug, 1, format!("* ruxc:: error: {:?}", err));
+                ruxc_print_log(logtype, debug, 1, format!("* ruxc:: error: {err:?}"));
             }
             return Ok(());
         }
-    }
+    };
 
     if debug != 0 {
         ruxc_print_log(
             logtype,
             debug,
             3,
-            format!(
-                "* ruxc:: {} {} {}",
-                res.http_version(),
-                res.status(),
-                res.status_text()
-            ),
+            format!("* ruxc:: {:?} {}", res.version(), res.status()),
         );
     }
 
+    let status = res.status().as_u16();
     unsafe {
-        (*v_http_response).rescode = res.status() as i32;
+        (*v_http_response).rescode = status as i32;
     };
 
-    if ruxc_http_response_storing(res.status(), final_attempt) {
+    if ruxc_http_response_storing(status, final_attempt) {
         // Store successful responses immediately and the last response after
         // all retry attempts have been exhausted.
         let max_response_size = HTTP_MAX_RESPONSE_SIZE.load(Ordering::SeqCst);
-        let body = ruxc_http_response_read_body(res.into_reader(), max_response_size)?;
+        let body = ruxc_http_response_read_body(res.into_body().into_reader(), max_response_size)?;
 
         if debug != 0 {
             ruxc_print_log(
@@ -547,7 +533,7 @@ fn ruxc_http_request_perform(
         }
     }
 
-    return Ok(());
+    Ok(())
 }
 
 // Perform HTTP/S request with a new agent every time
@@ -564,23 +550,21 @@ fn ruxc_http_request_perform_once(
         }
     };
 
-    let debug = unsafe { (*v_http_request).debug as i32 };
-    let logtype = unsafe { (*v_http_request).logtype as i32 };
+    let debug = unsafe { (*v_http_request).debug };
+    let logtype = unsafe { (*v_http_request).logtype };
 
     if debug != 0 {
         ruxc_print_log(
             logtype,
             debug,
             3,
-            format!("initializing http agent - noreuse"),
+            "initializing http agent - noreuse".to_string(),
         );
     }
 
-    let builder = ruxc_http_agent_builder(v_http_request)?;
+    let agent = ruxc_http_agent_builder(v_http_request)?;
 
-    let agent = builder.build();
-
-    let mut retry = unsafe { (*v_http_request).retry as i32 };
+    let mut retry = unsafe { (*v_http_request).retry };
 
     loop {
         ruxc_http_request_perform(
@@ -600,7 +584,7 @@ fn ruxc_http_request_perform_once(
         }
         retry -= 1;
     }
-    return Ok(());
+    Ok(())
 }
 
 fn ruxc_http_agent_initialize(v_http_request: *const RuxcHTTPRequest) -> Result<bool, Error> {
@@ -609,8 +593,7 @@ fn ruxc_http_agent_initialize(v_http_request: *const RuxcHTTPRequest) -> Result<
             return Ok(false);
         }
 
-        let builder = ruxc_http_agent_builder(v_http_request)?;
-        *agent.borrow_mut() = Some(builder.build());
+        *agent.borrow_mut() = Some(ruxc_http_agent_builder(v_http_request)?);
         Ok(true)
     })
 }
@@ -629,21 +612,19 @@ fn ruxc_http_request_perform_reuse(
         }
     };
 
-    let debug = unsafe { (*v_http_request).debug as i32 };
-    let logtype = unsafe { (*v_http_request).logtype as i32 };
+    let debug = unsafe { (*v_http_request).debug };
+    let logtype = unsafe { (*v_http_request).logtype };
 
-    if ruxc_http_agent_initialize(v_http_request)? {
-        if debug != 0 {
-            ruxc_print_log(
-                logtype,
-                debug,
-                3,
-                format!("initializing http agent - reuse on"),
-            );
-        }
+    if ruxc_http_agent_initialize(v_http_request)? && debug != 0 {
+        ruxc_print_log(
+            logtype,
+            debug,
+            3,
+            "initializing http agent - reuse on".to_string(),
+        );
     }
 
-    let mut retry = unsafe { (*v_http_request).retry as i32 };
+    let mut retry = unsafe { (*v_http_request).retry };
 
     HTTPAGENT.with(|agent| -> Result<(), Error> {
         let agent = agent.borrow();
@@ -673,7 +654,7 @@ fn ruxc_http_request_perform_reuse(
         Ok(())
     })?;
 
-    return Ok(());
+    Ok(())
 }
 
 // Perform HTTP/S request reusing agents kept in hashmap by base URL
@@ -690,8 +671,8 @@ fn ruxc_http_request_perform_hashmap(
         }
     };
 
-    let debug = unsafe { (*v_http_request).debug as i32 };
-    let logtype = unsafe { (*v_http_request).logtype as i32 };
+    let debug = unsafe { (*v_http_request).debug };
+    let logtype = unsafe { (*v_http_request).logtype };
 
     let r_url_str = unsafe {
         ruxc_utf8_buffer_from_raw_parts((*v_http_request).url, (*v_http_request).url_len, "URL")?
@@ -708,7 +689,7 @@ fn ruxc_http_request_perform_hashmap(
     );
 
     if debug != 0 {
-        ruxc_print_log(logtype, debug, 3, format!("htable key [{}]", htkey));
+        ruxc_print_log(logtype, debug, 3, format!("htable key [{htkey}]"));
     }
 
     HTTPAGENTMAP.with(|item| -> Result<(), Error> {
@@ -720,25 +701,19 @@ fn ruxc_http_request_perform_hashmap(
                     logtype,
                     debug,
                     3,
-                    format!("initializing http agent for [{}]", htnewkey),
+                    format!("initializing http agent for [{htnewkey}]"),
                 );
             }
-            let builder = ruxc_http_agent_builder(v_http_request)?;
-            ht.insert(htnewkey, builder.build());
+            ht.insert(htnewkey, ruxc_http_agent_builder(v_http_request)?);
         }
         if let Some(agent) = ht.get(&htkey) {
             if debug != 0 {
-                ruxc_print_log(
-                    logtype,
-                    debug,
-                    3,
-                    format!("agent retrieved for [{}]", htkey),
-                );
+                ruxc_print_log(logtype, debug, 3, format!("agent retrieved for [{htkey}]"));
             }
-            let mut retry = unsafe { (*v_http_request).retry as i32 };
+            let mut retry = unsafe { (*v_http_request).retry };
             loop {
                 ruxc_http_request_perform(
-                    &agent,
+                    agent,
                     v_http_request,
                     v_http_response,
                     &v_method,
@@ -758,7 +733,7 @@ fn ruxc_http_request_perform_hashmap(
         Ok(())
     })?;
 
-    return Ok(());
+    Ok(())
 }
 
 fn ruxc_http_request_dispatch(
@@ -766,7 +741,7 @@ fn ruxc_http_request_dispatch(
     v_http_response: *mut RuxcHTTPResponse,
     v_method: HTTPMethodType,
 ) -> Result<(), Error> {
-    let reuse = unsafe { (*v_http_request).reuse as i32 };
+    let reuse = unsafe { (*v_http_request).reuse };
     match reuse {
         1 => ruxc_http_request_perform_reuse(v_http_request, v_http_response, v_method),
         2 => ruxc_http_request_perform_hashmap(v_http_request, v_http_response, v_method),
@@ -809,7 +784,10 @@ fn ruxc_http_request_ffi(
 
 // Perform HTTP/S GET request
 #[no_mangle]
-pub extern "C" fn ruxc_http_get(
+/// # Safety
+///
+/// Both pointers must be valid for reads or writes respectively for the duration of the call.
+pub unsafe extern "C" fn ruxc_http_get(
     v_http_request: *const RuxcHTTPRequest,
     v_http_response: *mut RuxcHTTPResponse,
 ) -> libc::c_int {
@@ -818,7 +796,10 @@ pub extern "C" fn ruxc_http_get(
 
 // Perform HTTP/S POST request
 #[no_mangle]
-pub extern "C" fn ruxc_http_post(
+/// # Safety
+///
+/// Both pointers must be valid for reads or writes respectively for the duration of the call.
+pub unsafe extern "C" fn ruxc_http_post(
     v_http_request: *const RuxcHTTPRequest,
     v_http_response: *mut RuxcHTTPResponse,
 ) -> libc::c_int {
@@ -827,7 +808,10 @@ pub extern "C" fn ruxc_http_post(
 
 // Perform HTTP/S DELETE request
 #[no_mangle]
-pub extern "C" fn ruxc_http_delete(
+/// # Safety
+///
+/// Both pointers must be valid for reads or writes respectively for the duration of the call.
+pub unsafe extern "C" fn ruxc_http_delete(
     v_http_request: *const RuxcHTTPRequest,
     v_http_response: *mut RuxcHTTPResponse,
 ) -> libc::c_int {
@@ -840,7 +824,10 @@ pub extern "C" fn ruxc_http_delete(
 
 // Perform HTTP/S CUSTOM request
 #[no_mangle]
-pub extern "C" fn ruxc_http_request(
+/// # Safety
+///
+/// Both pointers must be valid for reads or writes respectively for the duration of the call.
+pub unsafe extern "C" fn ruxc_http_request(
     v_http_request: *const RuxcHTTPRequest,
     v_http_response: *mut RuxcHTTPResponse,
 ) -> libc::c_int {
