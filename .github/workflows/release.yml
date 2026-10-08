@@ -26,6 +26,9 @@ jobs:
       - name: Check out release
         uses: actions/checkout@v7
 
+      - name: Install Rust 1.88
+        run: rustup toolchain install 1.88 --profile minimal && rustup default 1.88
+
       - name: Install Rust target
         env:
           TARGET: ${{ matrix.target }}
@@ -96,6 +99,9 @@ jobs:
     steps:
       - name: Check out release
         uses: actions/checkout@v7
+
+      - name: Install Rust 1.88
+        run: rustup toolchain install 1.88 --profile minimal && rustup default 1.88
 
       - name: Install Rust target
         env:
