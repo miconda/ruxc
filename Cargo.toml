@@ -3,14 +3,14 @@ name = "ruxc"
 version = "1.1.0"
 authors = ["Daniel-Constantin Mierla <miconda@gmail.com>"]
 edition = "2021"
+rust-version = "1.88"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-libc = ">=0.2.0,<0.3.0"
-ureq = ">=2.3.0,<2.4.0"
-url = ">=2.2.0,<2.3.0"
-rustls = {version = ">=0.20.0,<0.21.0", features = ["dangerous_configuration"]}
+libc = "0.2.190"
+ureq = { version = "3.4.2", default-features = false, features = ["rustls"] }
+url = "2.5.8"
 
 [lib]
 name = "ruxc"
