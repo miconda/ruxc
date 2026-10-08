@@ -27,6 +27,11 @@ lib:
 example:
 	gcc -o examples/httpcli -I include/ examples/httpcli.c target/release/libruxc.a $(LD_EXTRA_FLAGS)
 
+.PHONY: abi-test
+abi-test: lib
+	$(CC) -std=c11 -o target/abi-test -I include/ tests/abi.c target/release/libruxc.a $(LD_EXTRA_FLAGS)
+	target/abi-test
+
 .PHONY: install-dirs
 install-dirs:
 	mkdir -p ${DESTDIR}${PREFIX}
@@ -56,4 +61,3 @@ uninstall:
 clean:
 	rm -rf target
 	rm -f examples/httpcli
-
