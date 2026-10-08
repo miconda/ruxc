@@ -9,6 +9,8 @@ for doing GET, POST or DELETE requests. It has support for HTTPS.
 
 ## Build
 
+Building from source requires Rust 1.88 or newer.
+
 ### Build With Cargo
 
 The library can be build directly using `cargo` tool that comes with `rust`:
@@ -44,7 +46,7 @@ Useful commands for building using a Docker container:
 docker run --rm \
   -v "$PWD":/work \
   -w /work \
-  rust:1.81-bookworm \
+  rust:1.88-bookworm \
   make
 
 # to avoid root-owned artifacts on Linux:
@@ -54,7 +56,7 @@ docker run --rm \
   -e CARGO_HOME=/tmp/cargo \
   -v "$PWD":/work \
   -w /work \
-  rust:1.81-bookworm \
+  rust:1.88-bookworm \
   make
 ```
 
