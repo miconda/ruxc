@@ -21,6 +21,7 @@ Usage: httpcli [params]\n\
 Options:\n\
     -a count      number of retry attempts\n\
     -d level      debug level (0 - no logs; 1 - errors; 2 - debug)\n\
+    -i            accept HTTPS certificates not signed by a trusted CA\n\
     -l type       log type (0 - print to stdout; 1 - print to syslog)\n\
     -m method     method value\n\
     -n count      number of requests to be sent\n\
@@ -56,13 +57,14 @@ int main(int argc, char *argv[])
 	int logtype = 0;
 	int debug = 0;
 	int timeout = 5000;
+	int tlsmode = 1;
 	char *postdata = "{ \"info\": \"testing\", \"id\": 80 }";
 	int reuse = 0;
 	char *url = NULL;
 	char *method = NULL;
 
 	opterr=0;
-	while ((c=getopt(argc, argv, "a:d:l:m:n:P:r:t:u:hp")) != -1) {
+	while ((c=getopt(argc, argv, "a:d:il:m:n:P:r:t:u:hp")) != -1) {
 		i++;
 		switch(c) {
 			case 'a':
@@ -80,6 +82,9 @@ int main(int argc, char *argv[])
 			case 'd':
 				debug = atoi(optarg);
 				if(debug<0 || debug>2) { debug = 0; }
+				break;
+			case 'i':
+				tlsmode = 0;
 				break;
 			case 'm':
 				method = optarg;
@@ -116,6 +121,7 @@ int main(int argc, char *argv[])
 	v_http_request.timeout_connect = timeout;
 	v_http_request.timeout_read = timeout;
 	v_http_request.timeout_write = timeout;
+	v_http_request.tlsmode = tlsmode;
 	v_http_request.logtype = logtype;
 	v_http_request.debug = debug;
 	v_http_request.reuse = reuse;
