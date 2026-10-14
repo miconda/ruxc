@@ -17,6 +17,25 @@
 #include <ruxc.h>
 
 static char *version = "httpcli 0.2.0";
+
+static char* helpmsg = "\
+Usage: httpcli [params]\n\
+Options:\n\
+    -a count      number of retry attempts\n\
+    -d level      debug level (0 - no logs; 1 - errors; 2 - info; 3 - debug)\n\
+    -H header     add HTTP header 'Name: value' (repeatable)\n\
+    -i            accept HTTPS certificates not signed by a trusted CA\n\
+    -l type       log type (0 - print to stdout; 1 - print to syslog)\n\
+    -m method     method value\n\
+    -n count      number of requests to be sent\n\
+    -P            do http post instead of get\n\
+    -p data       http post data\n\
+    -r mode       reuse mode\n\
+    -t msec       timeout in milliseconds\n\
+    -u url        URL to request\n\
+    -h            this help message\n\
+";
+
 static int append_header(char **headers, size_t *headers_len, const char *header)
 {
 	const char *separator = strchr(header, ':');
@@ -46,24 +65,6 @@ static int append_header(char **headers, size_t *headers_len, const char *header
 	*headers_len = new_len;
 	return 0;
 }
-
-static char* helpmsg = "\
-Usage: httpcli [params]\n\
-Options:\n\
-    -a count      number of retry attempts\n\
-    -d level      debug level (0 - no logs; 1 - errors; 2 - info; 3 - debug)\n\
-    -H header     add HTTP header 'Name: value' (repeatable)\n\
-    -i            accept HTTPS certificates not signed by a trusted CA\n\
-    -l type       log type (0 - print to stdout; 1 - print to syslog)\n\
-    -m method     method value\n\
-    -n count      number of requests to be sent\n\
-    -P            do http post instead of get\n\
-    -p data       http post data\n\
-    -r mode       reuse mode\n\
-    -t msec       timeout in milliseconds\n\
-    -u url        URL to request\n\
-    -h            this help message\n\
-";
 
 int main(int argc, char *argv[])
 {
