@@ -15,7 +15,7 @@
 
 #include <ruxc.h>
 
-static char *version = "httpcli 0.1.0";
+static char *version = "httpcli 0.2.0";
 static char* helpmsg = "\
 Usage: httpcli [params]\n\
 Options:\n\
