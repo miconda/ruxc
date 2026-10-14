@@ -73,8 +73,7 @@ They are a simple alternative to the versatile cURL library, not depending
 on `libssl` or `gnutls` either. The functions are useful when willing to build
 a simple HTTP client in C, specially for multi-process applications when one
 wants to re-use the HTTP/S connection independently in each process or thread
-and does not care about
-multi-threading constraints of `libssl` or `libcurl`.
+and does not care about multi-threading constraints of `libssl` or `libcurl`.
 
 With reuse mode `1`, each thread initializes its own cached HTTP agent. The
 first request on that thread determines the cached agent's TLS and timeout
@@ -98,9 +97,6 @@ if(ruxc_http_set_max_response_size(4U * 1024U * 1024U) != RUXC_HTTP_RET_OK) {
 If a response exceeds the limit, the request returns
 `RUXC_HTTP_RET_RESPONSE_TOO_LARGE`, keeps `resdata` empty, and preserves the HTTP
 status in `rescode` when one was received.
-
-For usage example, see also `examples/httpcli.c` or the `ruxc` module of Kamailio
-project (https://github.com/kamailio/kamailio/tree/master/src/modules/ruxc).
 
 ### Example Of Usage
 
@@ -149,6 +145,9 @@ int main(int argc, char *argv[])
 	return 0;
 }
 ```
+
+For usage example, see also `examples/httpcli.c` or the `ruxc` module of Kamailio
+project (https://github.com/kamailio/kamailio/tree/master/src/modules/ruxc).
 
 Running `examples/httpcli` on MacOS:
 
