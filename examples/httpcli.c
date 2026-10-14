@@ -23,7 +23,7 @@ static char* helpmsg = "\
 Usage: httpcli [params]\n\
 Options:\n\
     -a count      number of retry attempts\n\
-    -b data       http request body data\n\
+    -b data       http request body data (required with -P)\n\
     -d level      debug level (0 - no logs; 1 - errors; 2 - info; 3 - debug)\n\
     -H header     add HTTP header 'Name: value' (repeatable)\n\
     -i            accept HTTPS certificates not signed by a trusted CA\n\
@@ -107,7 +107,7 @@ int main(int argc, char *argv[])
 	int debug = 0;
 	int timeout = 5000;
 	int tlsmode = 1;
-	char *bodydata = "{ \"info\": \"testing\", \"id\": 80 }";
+	char *bodydata = NULL;
 	int reuse = 0;
 	char *method = NULL;
 	char *headers = NULL;
@@ -185,6 +185,12 @@ int main(int argc, char *argv[])
 
 	if(url_count == 0) {
 		fprintf(stderr, "at least one URL must be provided with -u\n");
+		free(headers);
+		free(url_list);
+		return 1;
+	}
+	if(post && bodydata == NULL) {
+		fprintf(stderr, "-b data is required with -P\n");
 		free(headers);
 		free(url_list);
 		return 1;
