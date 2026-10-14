@@ -20,7 +20,7 @@ static char* helpmsg = "\
 Usage: httpcli [params]\n\
 Options:\n\
     -a count      number of retry attempts\n\
-    -d level      debug level (0 - no logs; 1 - errors; 2 - debug)\n\
+    -d level      debug level (0 - no logs; 1 - errors; 2 - info; 3 - debug)\n\
     -i            accept HTTPS certificates not signed by a trusted CA\n\
     -l type       log type (0 - print to stdout; 1 - print to syslog)\n\
     -m method     method value\n\
@@ -28,7 +28,7 @@ Options:\n\
     -p            do http post instead of get\n\
     -P data       http post data\n\
     -r mode       reuse mode\n\
-    -t usec       microseconds timeout\n\
+    -t msec       timeout in milliseconds\n\
     -u url        URL to request\n\
     -h            this help message\n\
 ";
@@ -81,13 +81,17 @@ int main(int argc, char *argv[])
 				break;
 			case 'd':
 				debug = atoi(optarg);
-				if(debug<0 || debug>2) { debug = 0; }
+				if(debug<0 || debug>3) { debug = 0; }
 				break;
 			case 'i':
 				tlsmode = 0;
 				break;
 			case 'm':
 				method = optarg;
+				break;
+			case 'n':
+				ncount = atoi(optarg);
+				if(ncount<=0) { ncount = 1; }
 				break;
 			case 'p':
 				post = 1;
