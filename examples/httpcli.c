@@ -57,8 +57,8 @@ Options:\n\
     -l type       log type (0 - print to stdout; 1 - print to syslog)\n\
     -m method     method value\n\
     -n count      number of requests to be sent\n\
-    -p            do http post instead of get\n\
-    -P data       http post data\n\
+    -P            do http post instead of get\n\
+    -p data       http post data\n\
     -r mode       reuse mode\n\
     -t msec       timeout in milliseconds\n\
     -u url        URL to request\n\
@@ -98,7 +98,7 @@ int main(int argc, char *argv[])
 	size_t headers_len = 0;
 
 	opterr=0;
-	while ((c=getopt(argc, argv, "a:d:H:il:m:n:P:r:t:u:hp")) != -1) {
+	while ((c=getopt(argc, argv, "a:d:H:il:m:n:Pp:r:t:u:h")) != -1) {
 		i++;
 		switch(c) {
 			case 'a':
@@ -134,10 +134,10 @@ int main(int argc, char *argv[])
 				ncount = atoi(optarg);
 				if(ncount<=0) { ncount = 1; }
 				break;
-			case 'p':
+			case 'P':
 				post = 1;
 				break;
-			case 'P':
+			case 'p':
 				postdata = optarg;
 				break;
 			case 't':
