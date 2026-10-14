@@ -5,9 +5,9 @@
 #include <stddef.h>
 
 /* library version string - x.y.z */
-#define LIBRUXC_VERSION_STR "2.0.0"
+#define LIBRUXC_VERSION_STR "2.0.1"
 /* library version id - 3 digits for each x.y.z */
-#define LIBRUXC_VERSION_ID 2000000
+#define LIBRUXC_VERSION_ID 2000001
 
 /* HTTP request return codes */
 #define RUXC_HTTP_RET_OK 0
