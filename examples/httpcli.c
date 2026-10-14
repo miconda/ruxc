@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <limits.h>
 #include <unistd.h>
 #include <time.h>
 #include <sys/time.h>
@@ -16,11 +17,42 @@
 #include <ruxc.h>
 
 static char *version = "httpcli 0.2.0";
+static int append_header(char **headers, size_t *headers_len, const char *header)
+{
+	const char *separator = strchr(header, ':');
+	size_t header_len = strlen(header);
+	size_t new_len;
+	char *new_headers;
+
+	if(separator == NULL || separator == header || strchr(header, '\r') != NULL
+			|| strchr(header, '\n') != NULL) {
+		return -1;
+	}
+	if(header_len > (size_t)INT_MAX - 2
+			|| *headers_len > (size_t)INT_MAX - header_len - 2) {
+		return -1;
+	}
+
+	new_len = *headers_len + header_len + 2;
+	new_headers = realloc(*headers, new_len + 1);
+	if(new_headers == NULL) {
+		return -1;
+	}
+
+	memcpy(new_headers + *headers_len, header, header_len);
+	memcpy(new_headers + *headers_len + header_len, "\r\n", 2);
+	new_headers[new_len] = '\0';
+	*headers = new_headers;
+	*headers_len = new_len;
+	return 0;
+}
+
 static char* helpmsg = "\
 Usage: httpcli [params]\n\
 Options:\n\
     -a count      number of retry attempts\n\
     -d level      debug level (0 - no logs; 1 - errors; 2 - info; 3 - debug)\n\
+    -H header     add HTTP header 'Name: value' (repeatable)\n\
     -i            accept HTTPS certificates not signed by a trusted CA\n\
     -l type       log type (0 - print to stdout; 1 - print to syslog)\n\
     -m method     method value\n\
@@ -62,9 +94,11 @@ int main(int argc, char *argv[])
 	int reuse = 0;
 	char *url = NULL;
 	char *method = NULL;
+	char *headers = NULL;
+	size_t headers_len = 0;
 
 	opterr=0;
-	while ((c=getopt(argc, argv, "a:d:il:m:n:P:r:t:u:hp")) != -1) {
+	while ((c=getopt(argc, argv, "a:d:H:il:m:n:P:r:t:u:hp")) != -1) {
 		i++;
 		switch(c) {
 			case 'a':
@@ -82,6 +116,13 @@ int main(int argc, char *argv[])
 			case 'd':
 				debug = atoi(optarg);
 				if(debug<0 || debug>3) { debug = 0; }
+				break;
+			case 'H':
+				if(append_header(&headers, &headers_len, optarg) < 0) {
+					fprintf(stderr, "invalid HTTP header: %s\n", optarg);
+					free(headers);
+					return 1;
+				}
 				break;
 			case 'i':
 				tlsmode = 0;
@@ -109,11 +150,12 @@ int main(int argc, char *argv[])
 			case 'h':
 				printf("version: %s\n", version);
 				printf("%s", helpmsg);
-				exit(0);
-				break;
+				free(headers);
+				return 0;
 			default:
 				printf("unknown cli option %c (%d) (i: %d)\n", (char)c, c, i);
-				exit(-1);
+				free(headers);
+				return 1;
 		}
 	}
 
@@ -145,9 +187,14 @@ int main(int argc, char *argv[])
 		v_http_request.url_len = strlen(v_http_request.url);
 		printf("\n* c:: request type=%s url=%s\n", (method!=NULL)?method:((post==1)?"post":"get"), v_http_request.url);
 
-		snprintf(hdrbuf, 255, "X-My-Key: KEY-%d\r\nX-Info: REQUEST-%d\r\n", i, i);
-		v_http_request.headers = hdrbuf;
-		v_http_request.headers_len = strlen(v_http_request.headers);
+		if(headers != NULL) {
+			v_http_request.headers = headers;
+			v_http_request.headers_len = (int)headers_len;
+		} else {
+			snprintf(hdrbuf, 255, "X-My-Key: KEY-%d\r\nX-Info: REQUEST-%d\r\n", i, i);
+			v_http_request.headers = hdrbuf;
+			v_http_request.headers_len = strlen(v_http_request.headers);
+		}
 
 		if(method != NULL) {
 			if(postdata != NULL && strlen(postdata) > 0) {
@@ -193,5 +240,6 @@ int main(int argc, char *argv[])
 	if(debug==2) {
 		closelog();
 	}
+	free(headers);
 	return 0;
 }
