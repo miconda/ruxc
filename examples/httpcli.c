@@ -22,14 +22,14 @@ static char* helpmsg = "\
 Usage: httpcli [params]\n\
 Options:\n\
     -a count      number of retry attempts\n\
+    -b data       http request body data\n\
     -d level      debug level (0 - no logs; 1 - errors; 2 - info; 3 - debug)\n\
     -H header     add HTTP header 'Name: value' (repeatable)\n\
     -i            accept HTTPS certificates not signed by a trusted CA\n\
     -l type       log type (0 - print to stdout; 1 - print to syslog)\n\
     -m method     method value\n\
     -n count      number of requests to be sent\n\
-    -P            do http post instead of get\n\
-    -p data       http post data\n\
+    -P            do http POST instead of GET\n\
     -r mode       reuse mode\n\
     -t msec       timeout in milliseconds\n\
     -u url        URL to request\n\
@@ -91,7 +91,7 @@ int main(int argc, char *argv[])
 	int debug = 0;
 	int timeout = 5000;
 	int tlsmode = 1;
-	char *postdata = "{ \"info\": \"testing\", \"id\": 80 }";
+	char *bodydata = "{ \"info\": \"testing\", \"id\": 80 }";
 	int reuse = 0;
 	char *url = NULL;
 	char *method = NULL;
@@ -99,7 +99,7 @@ int main(int argc, char *argv[])
 	size_t headers_len = 0;
 
 	opterr=0;
-	while ((c=getopt(argc, argv, "a:d:H:il:m:n:Pp:r:t:u:h")) != -1) {
+	while ((c=getopt(argc, argv, "a:b:d:H:il:m:n:Pr:t:u:h")) != -1) {
 		i++;
 		switch(c) {
 			case 'a':
@@ -138,8 +138,8 @@ int main(int argc, char *argv[])
 			case 'P':
 				post = 1;
 				break;
-			case 'p':
-				postdata = optarg;
+			case 'b':
+				bodydata = optarg;
 				break;
 			case 't':
 				timeout = atoi(optarg);
@@ -198,15 +198,15 @@ int main(int argc, char *argv[])
 		}
 
 		if(method != NULL) {
-			if(postdata != NULL && strlen(postdata) > 0) {
-				v_http_request.data = postdata;
+			if(bodydata != NULL && strlen(bodydata) > 0) {
+				v_http_request.data = bodydata;
 				v_http_request.data_len = strlen(v_http_request.data);
 			}
 			gettimeofday(&tvb, NULL);
 			ruxc_http_request(&v_http_request, &v_http_response);
 			gettimeofday(&tve, NULL);
 		} else if(post==1) {
-			v_http_request.data = postdata;
+			v_http_request.data = bodydata;
 			v_http_request.data_len = strlen(v_http_request.data);
 			gettimeofday(&tvb, NULL);
 			ruxc_http_post(&v_http_request, &v_http_response);
